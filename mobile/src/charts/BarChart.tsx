@@ -1,5 +1,5 @@
 import Svg, { Rect, Line, Text as SvgText, G } from 'react-native-svg';
-import { colors } from '../theme';
+import { useTheme } from '../context/ThemeContext';
 
 interface BarDatum {
   label: string;
@@ -17,6 +17,7 @@ const PADDING = { top: 12, right: 12, bottom: 24, left: 36 };
 const BAR_RADIUS = 4;
 
 export function BarChart({ width, height, data }: BarChartProps) {
+  const { colors } = useTheme();
   const innerW = width - PADDING.left - PADDING.right;
   const innerH = height - PADDING.top - PADDING.bottom;
   const max = Math.max(1, ...data.flatMap((d) => [d.income, d.expenses]));

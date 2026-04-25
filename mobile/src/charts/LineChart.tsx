@@ -1,5 +1,5 @@
 import Svg, { Path, Circle, Line, Text as SvgText, G } from 'react-native-svg';
-import { colors } from '../theme';
+import { useTheme } from '../context/ThemeContext';
 
 interface LineChartProps {
   width: number;
@@ -11,7 +11,9 @@ interface LineChartProps {
 
 const PADDING = { top: 12, right: 12, bottom: 24, left: 36 };
 
-export function LineChart({ width, height, values, labels, color = colors.rust }: LineChartProps) {
+export function LineChart({ width, height, values, labels, color }: LineChartProps) {
+  const { colors } = useTheme();
+  const finalColor = color ?? colors.rust;
   const innerW = width - PADDING.left - PADDING.right;
   const innerH = height - PADDING.top - PADDING.bottom;
 
@@ -57,10 +59,10 @@ export function LineChart({ width, height, values, labels, color = colors.rust }
         );
       })}
 
-      <Path d={path} stroke={color} strokeWidth={2.5} fill="none" />
+      <Path d={path} stroke={finalColor} strokeWidth={2.5} fill="none" />
 
       {values.map((v, i) => (
-        <Circle key={i} cx={x(i)} cy={y(v)} r={3.5} fill={color} />
+        <Circle key={i} cx={x(i)} cy={y(v)} r={3.5} fill={finalColor} />
       ))}
 
       {labels.map((label, i) => {

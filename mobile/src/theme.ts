@@ -1,21 +1,8 @@
-export const colors = {
-  paper: '#F5F1E8',
-  cream: '#FFFBF2',
-  ink: '#2C2416',
-  inkSoft: '#5C5142',
-  rust: '#8B5A3C',
-  moss: '#3D6B4A',
-  clay: '#A85751',
-  stone400: '#8A8275',
-  stone500: '#736B5C',
-  stone600: '#5C5142',
-  stone800: '#2C2416',
-  border: 'rgba(139,90,60,0.18)',
-  borderSoft: 'rgba(139,90,60,0.15)',
-  hairline: 'rgba(44,36,22,0.08)',
-  chip: 'rgba(44,36,22,0.06)',
-  overlay: 'rgba(44,36,22,0.5)',
-} as const;
+import { Category, CustomCategory } from './types';
+import { lightColors } from './context/ThemeContext';
+
+// We fallback to lightColors here for static functions, but hooks should prefer useTheme.
+export const colors = lightColors;
 
 export const fonts = {
   display: 'Fraunces_400Regular',
@@ -26,27 +13,6 @@ export const fonts = {
   bodyMedium: 'Inter_500Medium',
   bodySemibold: 'Inter_600SemiBold',
 } as const;
-
-export type Category = string;
-
-export interface CustomCategory {
-  id: string;
-  title: string;
-  description: string;
-  type: TxType;
-  color: string;
-}
-export type TxType = 'income' | 'expense';
-
-export interface Transaction {
-  id: string;
-  type: TxType;
-  amount: number;
-  description: string;
-  category: Category;
-  date: string;
-  recurring: boolean;
-}
 
 export const CATEGORIES: {
   income: string[];
@@ -88,9 +54,3 @@ export const colorFor = (c: string, customCategories?: CustomCategory[]): string
   if (custom) return custom.color;
   return CATEGORY_COLORS[c] ?? colors.stone400;
 };
-
-export const fmt = (n: number): string =>
-  `$${Math.abs(n).toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;

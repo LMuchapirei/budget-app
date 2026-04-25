@@ -7,7 +7,7 @@ import Svg, {
   Text as SvgText,
   G,
 } from 'react-native-svg';
-import { colors } from '../theme';
+import { useTheme } from '../context/ThemeContext';
 
 interface Series {
   color: string;
@@ -25,6 +25,7 @@ interface AreaChartProps {
 const PADDING = { top: 12, right: 8, bottom: 22, left: 32 };
 
 export function AreaChart({ width, height, series, labels }: AreaChartProps) {
+  const { colors } = useTheme();
   const innerW = width - PADDING.left - PADDING.right;
   const innerH = height - PADDING.top - PADDING.bottom;
 
