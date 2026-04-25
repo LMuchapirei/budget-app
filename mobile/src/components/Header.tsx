@@ -1,8 +1,12 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
-import { Wallet, TrendingUp, PieChart as PieIcon, Settings, ChevronLeft, ChevronRight, type LucideIcon } from 'lucide-react-native';
+import {
+  Wallet, TrendingUp, PieChart as PieIcon, Settings,
+  ChevronLeft, ChevronRight, type LucideIcon,
+} from 'lucide-react-native';
 import { useTheme } from '../context/ThemeContext';
 import { useBudget } from '../context/BudgetContext';
+import { DateRangeSheet } from './forms/DateRangeSheet';
 import { ViewTab } from '../types';
 import { fonts } from '../theme';
 
@@ -11,12 +15,21 @@ interface HeaderProps {
   setView: (v: ViewTab) => void;
 }
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function isoToDate(iso: string) {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+function isoDate(d: Date) {
+  return d.toISOString().split('T')[0];
+}
 
 export function Header({ view, setView }: HeaderProps) {
   const { colors } = useTheme();
   const { dateFilter, setDateFilter } = useBudget();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   const tabs: { id: ViewTab; label: string; Icon: LucideIcon }[] = [
     { id: 'dashboard', label: 'Ledger', Icon: Wallet },
@@ -25,29 +38,42 @@ export function Header({ view, setView }: HeaderProps) {
     { id: 'settings', label: 'Settings', Icon: Settings },
   ];
 
+  // Prev month: shift the whole range one month back
   const goToPrevMonth = () => {
-    setDateFilter(
-      dateFilter.month === 0
-        ? { year: dateFilter.year - 1, month: 11 }
-        : { year: dateFilter.year, month: dateFilter.month - 1 }
-    );
+    const start = isoToDate(dateFilter.startDate);
+    start.setMonth(start.getMonth() - 1);
+    const newStart = new Date(start.getFullYear(), start.getMonth(), 1);
+    const newEnd = new Date(start.getFullYear(), start.getMonth() + 1, 0);
+    setDateFilter({ startDate: isoDate(newStart), endDate: isoDate(newEnd) });
   };
 
+  // Next month: shift forward, capped at today
   const goToNextMonth = () => {
-    const now = new Date();
-    const isCurrentMonth =
-      dateFilter.year === now.getFullYear() && dateFilter.month === now.getMonth();
-    if (isCurrentMonth) return; // don't navigate into the future
-    setDateFilter(
-      dateFilter.month === 11
-        ? { year: dateFilter.year + 1, month: 0 }
-        : { year: dateFilter.year, month: dateFilter.month + 1 }
-    );
+    const today = new Date();
+    const start = isoToDate(dateFilter.startDate);
+    start.setMonth(start.getMonth() + 1);
+    if (start > today) return;
+    const newStart = new Date(start.getFullYear(), start.getMonth(), 1);
+    const newEnd = new Date(start.getFullYear(), start.getMonth() + 1, 0);
+    const cappedEnd = newEnd > today ? today : newEnd;
+    setDateFilter({ startDate: isoDate(newStart), endDate: isoDate(cappedEnd) });
   };
 
   const isCurrentMonth = (() => {
-    const now = new Date();
-    return dateFilter.year === now.getFullYear() && dateFilter.month === now.getMonth();
+    const today = new Date();
+    const start = isoToDate(dateFilter.startDate);
+    return start.getFullYear() === today.getFullYear() && start.getMonth() === today.getMonth();
+  })();
+
+  // Format the date label
+  const dateLabel = (() => {
+    const s = isoToDate(dateFilter.startDate);
+    const e = isoToDate(dateFilter.endDate);
+    const sameMonth = s.getMonth() === e.getMonth() && s.getFullYear() === e.getFullYear();
+    if (sameMonth) {
+      return `${MONTHS_SHORT[s.getMonth()]} ${s.getFullYear()}`;
+    }
+    return `${MONTHS_SHORT[s.getMonth()]} – ${MONTHS_SHORT[e.getMonth()]} ${e.getFullYear()}`;
   })();
 
   return (
@@ -56,27 +82,27 @@ export function Header({ view, setView }: HeaderProps) {
         <Text style={styles.title}>
           The <Text style={styles.titleEm}>Budget</Text>
         </Text>
-
-        {/* Date range navigator */}
-        <View style={styles.datePicker}>
-          <Pressable onPress={goToPrevMonth} hitSlop={10} style={styles.dateArrow}>
-            <ChevronLeft size={14} color={colors.stone500} />
-          </Pressable>
-          <Text style={styles.dateLabel}>
-            {MONTHS[dateFilter.month]} {dateFilter.year}
-          </Text>
-          <Pressable
-            onPress={goToNextMonth}
-            hitSlop={10}
-            style={[styles.dateArrow, isCurrentMonth && { opacity: 0.25 }]}
-            disabled={isCurrentMonth}
-          >
-            <ChevronRight size={14} color={colors.stone500} />
-          </Pressable>
-        </View>
       </View>
 
       <View style={styles.rule} />
+
+      {/* Date range navigator — its own row */}
+      <View style={styles.dateRow}>
+        <Pressable onPress={goToPrevMonth} hitSlop={10} style={styles.dateArrow}>
+          <ChevronLeft size={14} color={colors.stone500} />
+        </Pressable>
+        <Pressable onPress={() => setShowDatePicker(true)} style={styles.dateLabelWrap}>
+          <Text style={styles.dateLabel}>{dateLabel}</Text>
+        </Pressable>
+        <Pressable
+          onPress={goToNextMonth}
+          hitSlop={10}
+          style={[styles.dateArrow, isCurrentMonth && { opacity: 0.25 }]}
+          disabled={isCurrentMonth}
+        >
+          <ChevronRight size={14} color={colors.stone500} />
+        </Pressable>
+      </View>
       <Text style={styles.subtitle}>
         For your finances — a quiet place to keep score.
       </Text>
@@ -102,6 +128,13 @@ export function Header({ view, setView }: HeaderProps) {
           </View>
         </ScrollView>
       </View>
+
+      <DateRangeSheet
+        visible={showDatePicker}
+        current={dateFilter}
+        onApply={(f) => setDateFilter(f)}
+        onClose={() => setShowDatePicker(false)}
+      />
     </View>
   );
 }
@@ -124,25 +157,28 @@ const createStyles = (colors: any) =>
       fontFamily: fonts.displayItalic,
       color: colors.rust,
     },
-    datePicker: {
+    dateRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 4,
+      alignSelf: 'flex-start',
+      gap: 2,
       backgroundColor: colors.chip,
       borderRadius: 999,
       paddingHorizontal: 10,
-      paddingVertical: 6,
-      marginBottom: 8,
+      paddingVertical: 5,
+      marginTop: -4,
     },
-    dateArrow: {
-      padding: 2,
+    dateArrow: { padding: 3 },
+    dateLabelWrap: {
+      paddingHorizontal: 6,
+      paddingVertical: 1,
     },
     dateLabel: {
       fontFamily: fonts.bodyMedium,
       fontSize: 11,
       color: colors.stone500,
-      letterSpacing: 1,
-      minWidth: 64,
+      letterSpacing: 0.8,
+      minWidth: 72,
       textAlign: 'center',
     },
     rule: {

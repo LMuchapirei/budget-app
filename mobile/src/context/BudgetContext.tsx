@@ -3,8 +3,8 @@ import { Transaction, CustomCategory, Stats, Category } from '../types';
 import { storage } from '../services/storage';
 
 export interface DateFilter {
-  year: number;
-  month: number; // 0-indexed
+  startDate: string; // YYYY-MM-DD
+  endDate: string;   // YYYY-MM-DD
 }
 
 interface BudgetContextValue {
@@ -30,10 +30,10 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   const [customCategories, setCustomCategories] = useState<CustomCategory[]>([]);
   const [currency, setCurrencyState] = useState<string>('$');
   const [loading, setLoading] = useState(true);
-  const now = new Date();
+  const today = new Date();
   const [dateFilter, setDateFilter] = useState<DateFilter>({
-    year: now.getFullYear(),
-    month: now.getMonth(),
+    startDate: new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0],
+    endDate: today.toISOString().split('T')[0],
   });
 
   useEffect(() => {
@@ -101,11 +101,12 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   }, [currency]);
 
   const stats = useMemo<Stats>(() => {
-    const monthStart = new Date(dateFilter.year, dateFilter.month, 1);
-    const monthEnd = new Date(dateFilter.year, dateFilter.month + 1, 1);
+    const start = new Date(dateFilter.startDate);
+    const end = new Date(dateFilter.endDate);
+    end.setHours(23, 59, 59, 999);
     const filtered = transactions.filter((t) => {
       const d = new Date(t.date);
-      return d >= monthStart && d < monthEnd;
+      return d >= start && d <= end;
     });
     const income = filtered
       .filter((t) => t.type === 'income')

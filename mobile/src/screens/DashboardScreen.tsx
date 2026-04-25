@@ -20,33 +20,39 @@ export function DashboardScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [entryTab, setEntryTab] = useState<EntryTab>('all');
 
-  // Transactions filtered to the active month
+  // Transactions filtered to the active date range
   const monthlyTxs = useMemo(() => {
-    const start = new Date(dateFilter.year, dateFilter.month, 1);
-    const end = new Date(dateFilter.year, dateFilter.month + 1, 1);
+    const start = new Date(dateFilter.startDate);
+    const end = new Date(dateFilter.endDate);
+    end.setHours(23, 59, 59, 999);
     return transactions.filter((t) => {
       const d = new Date(t.date);
-      return d >= start && d < end;
+      return d >= start && d <= end;
     });
   }, [transactions, dateFilter]);
 
-  // Chart data: one entry per day in the selected month
+  // Chart data: one entry per day across the selected range
   const chartDays = useMemo(() => {
-    const daysInMonth = new Date(dateFilter.year, dateFilter.month + 1, 0).getDate();
-    return Array.from({ length: daysInMonth }, (_, i) => {
-      const d = new Date(dateFilter.year, dateFilter.month, i + 1);
+    const startMs = new Date(dateFilter.startDate).getTime();
+    const endMs = new Date(dateFilter.endDate).getTime();
+    const days: { label: string; income: number; expenses: number }[] = [];
+    const msPerDay = 86400000;
+    const totalDays = Math.round((endMs - startMs) / msPerDay) + 1;
+    const step = Math.max(1, Math.ceil(totalDays / 30)); // max 30 data points
+    for (let i = 0; i < totalDays; i++) {
+      if (i % step !== 0 && i !== totalDays - 1) continue;
+      const d = new Date(startMs + i * msPerDay);
       const key = d.toISOString().split('T')[0];
       const dayTx = transactions.filter((t) => t.date === key);
       const inc = dayTx.filter((t) => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0);
       const exp = dayTx.filter((t) => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0);
-      return {
-        label: i === 0 || i === daysInMonth - 1 || (i + 1) % 7 === 0
-          ? `${i + 1}`
-          : '',
+      days.push({
+        label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
         income: inc,
         expenses: exp,
-      };
-    });
+      });
+    }
+    return days;
   }, [transactions, dateFilter]);
 
   // Filtered recent entries based on tab
@@ -94,7 +100,7 @@ export function DashboardScreen() {
         />
       </View>
 
-      <Section title="Cash Flow" subtitle={`${chartDays.length}-day view`}>
+      <Section title="Cash Flow" subtitle={`${chartDays.length} data points`}>
         {monthlyTxs.length === 0 ? (
           <Empty msg="No transactions yet. Tap the + below to begin." />
         ) : (
