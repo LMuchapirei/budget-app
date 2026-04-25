@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/linval/Desktop/prototypes/budget-app/prototypes/**)",
+      "Read(//c/Users/linval/Desktop/prototypes/budget-app/mobile/**)",
+      "Bash(npm install *)",
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Read(//c/Users/linval/Desktop/prototypes/budget-app/**)",
+      "Bash(npx --yes create-expo-app@latest mobile-tmp --template blank-typescript)",
+      "Bash(rm -rf mobile-tmp/.git)",
+      "Bash(shopt -s dotglob)",
+      "Bash(mv mobile-tmp/* mobile/)",
+      "Bash(rmdir mobile-tmp *)",
+      "Bash(npx expo *)"
+    ]
+  }
+}
