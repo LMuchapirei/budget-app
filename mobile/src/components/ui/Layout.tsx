@@ -70,11 +70,11 @@ const createStyles = (colors: any) =>
     empty: {
       paddingVertical: 48,
       alignItems: 'center',
-      backgroundColor: 'rgba(255,251,242,0.4)',
+      backgroundColor: colors.chip,
       borderRadius: 18,
       borderWidth: 1,
       borderStyle: 'dashed',
-      borderColor: 'rgba(139,90,60,0.2)',
+      borderColor: colors.borderSoft,
       marginTop: 8,
     },
     emptyText: {

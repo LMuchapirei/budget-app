@@ -13,7 +13,10 @@
       "backgroundColor": "#F5F1E8"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "The Budget uses Face ID to keep your financial data private."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -27,7 +30,8 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-font"
+      "expo-font",
+      "expo-local-authentication"
     ]
   }
 }

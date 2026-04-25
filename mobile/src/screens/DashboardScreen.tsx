@@ -184,7 +184,7 @@ export function DashboardScreen() {
 const createStyles = (colors: any) =>
   StyleSheet.create({
     card: {
-      backgroundColor: 'rgba(255,251,242,0.7)',
+      backgroundColor: colors.cream,
       borderRadius: 20,
       borderWidth: 1,
       borderColor: colors.borderSoft,

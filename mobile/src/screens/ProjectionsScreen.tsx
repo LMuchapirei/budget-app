@@ -110,7 +110,7 @@ export function ProjectionsScreen() {
 const createStyles = (colors: any) =>
   StyleSheet.create({
     heroDark: {
-      backgroundColor: 'rgba(44,36,22,0.97)',
+      backgroundColor: colors.ink,
       borderRadius: 22,
       padding: 28,
       gap: 6,
@@ -118,7 +118,7 @@ const createStyles = (colors: any) =>
     heroEyebrow: {
       fontFamily: fonts.displayItalic,
       color: colors.paper,
-      opacity: 0.6,
+      opacity: 0.65,
       letterSpacing: 2,
       fontSize: 11,
       textTransform: 'uppercase',
@@ -134,12 +134,12 @@ const createStyles = (colors: any) =>
     heroBody: {
       fontFamily: fonts.body,
       color: colors.paper,
-      opacity: 0.7,
+      opacity: 0.65,
       fontSize: 13,
       marginTop: 6,
     },
     card: {
-      backgroundColor: 'rgba(255,251,242,0.7)',
+      backgroundColor: colors.cream,
       borderRadius: 20,
       borderWidth: 1,
       borderColor: colors.borderSoft,

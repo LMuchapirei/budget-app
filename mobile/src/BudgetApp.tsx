@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { View, ScrollView, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
-import { SafeAreaView } from 'react-native';
+import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import {
   useFonts,
@@ -125,10 +125,12 @@ export default function BudgetApp() {
   if (!fontsLoaded) return null;
 
   return (
-    <ThemeProvider>
-      <BudgetProvider>
-        <Layout />
-      </BudgetProvider>
-    </ThemeProvider>
+    <SafeAreaProvider>
+      <ThemeProvider>
+        <BudgetProvider>
+          <Layout />
+        </BudgetProvider>
+      </ThemeProvider>
+    </SafeAreaProvider>
   );
 }
