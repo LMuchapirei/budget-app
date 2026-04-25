@@ -1,10 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useMemo, useCallback } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Transaction, CustomCategory, Stats, Category } from '../types';
-
-const STORAGE_KEY = 'budget:transactions:v1';
-const CAT_STORAGE_KEY = 'budget:categories:v1';
-const CURRENCY_KEY = 'budget:currency:v1';
+import { storage } from '../services/storage';
 
 interface BudgetContextValue {
   transactions: Transaction[];
@@ -31,12 +27,12 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
-        const raw = await AsyncStorage.getItem(STORAGE_KEY);
-        if (raw) setTransactions(JSON.parse(raw));
-        const rawCat = await AsyncStorage.getItem(CAT_STORAGE_KEY);
-        if (rawCat) setCustomCategories(JSON.parse(rawCat));
-        const rawCur = await AsyncStorage.getItem(CURRENCY_KEY);
-        if (rawCur) setCurrencyState(rawCur);
+        const txs = await storage.getTransactions();
+        if (txs) setTransactions(txs);
+        const cats = await storage.getCategories();
+        if (cats) setCustomCategories(cats);
+        const cur = await storage.getCurrency();
+        if (cur) setCurrencyState(cur);
       } catch {
         // First run
       }
@@ -47,7 +43,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   const persistTransactions = useCallback(async (next: Transaction[]) => {
     setTransactions(next);
     try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      await storage.saveTransactions(next);
     } catch (e) {
       console.error(e);
     }
@@ -56,7 +52,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   const persistCategories = useCallback(async (next: CustomCategory[]) => {
     setCustomCategories(next);
     try {
-      await AsyncStorage.setItem(CAT_STORAGE_KEY, JSON.stringify(next));
+      await storage.saveCategories(next);
     } catch (e) {
       console.error(e);
     }
@@ -76,11 +72,11 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
 
   const setCurrency = async (cur: string) => {
     setCurrencyState(cur);
-    await AsyncStorage.setItem(CURRENCY_KEY, cur);
+    await storage.setCurrency(cur);
   };
 
   const clearAllData = async () => {
-    await AsyncStorage.multiRemove([STORAGE_KEY, CAT_STORAGE_KEY]);
+    await storage.clearAllData();
     setTransactions([]);
     setCustomCategories([]);
   };
