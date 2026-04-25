@@ -1,7 +1,8 @@
 import React, { useMemo } from 'react';
 import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
-import { Wallet, TrendingUp, PieChart as PieIcon, Settings, type LucideIcon } from 'lucide-react-native';
+import { Wallet, TrendingUp, PieChart as PieIcon, Settings, ChevronLeft, ChevronRight, type LucideIcon } from 'lucide-react-native';
 import { useTheme } from '../context/ThemeContext';
+import { useBudget } from '../context/BudgetContext';
 import { ViewTab } from '../types';
 import { fonts } from '../theme';
 
@@ -10,8 +11,11 @@ interface HeaderProps {
   setView: (v: ViewTab) => void;
 }
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
 export function Header({ view, setView }: HeaderProps) {
   const { colors } = useTheme();
+  const { dateFilter, setDateFilter } = useBudget();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const tabs: { id: ViewTab; label: string; Icon: LucideIcon }[] = [
@@ -21,18 +25,57 @@ export function Header({ view, setView }: HeaderProps) {
     { id: 'settings', label: 'Settings', Icon: Settings },
   ];
 
+  const goToPrevMonth = () => {
+    setDateFilter(
+      dateFilter.month === 0
+        ? { year: dateFilter.year - 1, month: 11 }
+        : { year: dateFilter.year, month: dateFilter.month - 1 }
+    );
+  };
+
+  const goToNextMonth = () => {
+    const now = new Date();
+    const isCurrentMonth =
+      dateFilter.year === now.getFullYear() && dateFilter.month === now.getMonth();
+    if (isCurrentMonth) return; // don't navigate into the future
+    setDateFilter(
+      dateFilter.month === 11
+        ? { year: dateFilter.year + 1, month: 0 }
+        : { year: dateFilter.year, month: dateFilter.month + 1 }
+    );
+  };
+
+  const isCurrentMonth = (() => {
+    const now = new Date();
+    return dateFilter.year === now.getFullYear() && dateFilter.month === now.getMonth();
+  })();
+
   return (
     <View style={styles.header}>
       <View style={styles.headerTitleRow}>
         <Text style={styles.title}>
           The <Text style={styles.titleEm}>Budget</Text>
         </Text>
-        <Text style={styles.dateLabel}>
-          {new Date()
-            .toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-            .toUpperCase()}
-        </Text>
+
+        {/* Date range navigator */}
+        <View style={styles.datePicker}>
+          <Pressable onPress={goToPrevMonth} hitSlop={10} style={styles.dateArrow}>
+            <ChevronLeft size={14} color={colors.stone500} />
+          </Pressable>
+          <Text style={styles.dateLabel}>
+            {MONTHS[dateFilter.month]} {dateFilter.year}
+          </Text>
+          <Pressable
+            onPress={goToNextMonth}
+            hitSlop={10}
+            style={[styles.dateArrow, isCurrentMonth && { opacity: 0.25 }]}
+            disabled={isCurrentMonth}
+          >
+            <ChevronRight size={14} color={colors.stone500} />
+          </Pressable>
+        </View>
       </View>
+
       <View style={styles.rule} />
       <Text style={styles.subtitle}>
         For your finances — a quiet place to keep score.
@@ -81,12 +124,26 @@ const createStyles = (colors: any) =>
       fontFamily: fonts.displayItalic,
       color: colors.rust,
     },
+    datePicker: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      backgroundColor: colors.chip,
+      borderRadius: 999,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      marginBottom: 8,
+    },
+    dateArrow: {
+      padding: 2,
+    },
     dateLabel: {
       fontFamily: fonts.bodyMedium,
-      fontSize: 10,
+      fontSize: 11,
       color: colors.stone500,
-      letterSpacing: 2,
-      marginBottom: 8,
+      letterSpacing: 1,
+      minWidth: 64,
+      textAlign: 'center',
     },
     rule: {
       height: 1,

@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { View, StyleSheet, useWindowDimensions } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { View, Text, Pressable, StyleSheet, useWindowDimensions } from 'react-native';
 import { TrendingUp, TrendingDown, Wallet } from 'lucide-react-native';
 import { useTheme } from '../context/ThemeContext';
 import { useBudget } from '../context/BudgetContext';
@@ -7,41 +7,62 @@ import { AreaChart } from '../charts/AreaChart';
 import { StatCard } from '../components/ui/StatCard';
 import { Section, Empty, Legend } from '../components/ui/Layout';
 import { TxRow } from '../components/ui/TxRow';
+import { TxType } from '../types';
+import { fonts } from '../theme';
+
+type EntryTab = 'all' | TxType;
 
 export function DashboardScreen() {
   const { colors } = useTheme();
-  const { transactions, stats, customCategories } = useBudget();
+  const { transactions, stats, customCategories, dateFilter } = useBudget();
   const { width } = useWindowDimensions();
 
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const [entryTab, setEntryTab] = useState<EntryTab>('all');
 
-  const recent = transactions.slice(0, 8);
+  // Transactions filtered to the active month
+  const monthlyTxs = useMemo(() => {
+    const start = new Date(dateFilter.year, dateFilter.month, 1);
+    const end = new Date(dateFilter.year, dateFilter.month + 1, 1);
+    return transactions.filter((t) => {
+      const d = new Date(t.date);
+      return d >= start && d < end;
+    });
+  }, [transactions, dateFilter]);
 
-  const last30 = useMemo(() => {
-    const days: { key: string; label: string; income: number; expenses: number }[] = [];
-    const now = new Date();
-    for (let i = 29; i >= 0; i--) {
-      const d = new Date(now);
-      d.setDate(d.getDate() - i);
+  // Chart data: one entry per day in the selected month
+  const chartDays = useMemo(() => {
+    const daysInMonth = new Date(dateFilter.year, dateFilter.month + 1, 0).getDate();
+    return Array.from({ length: daysInMonth }, (_, i) => {
+      const d = new Date(dateFilter.year, dateFilter.month, i + 1);
       const key = d.toISOString().split('T')[0];
       const dayTx = transactions.filter((t) => t.date === key);
-      const inc = dayTx
-        .filter((t) => t.type === 'income')
-        .reduce((s, t) => s + Number(t.amount), 0);
-      const exp = dayTx
-        .filter((t) => t.type === 'expense')
-        .reduce((s, t) => s + Number(t.amount), 0);
-      days.push({
-        key,
-        label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      const inc = dayTx.filter((t) => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0);
+      const exp = dayTx.filter((t) => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0);
+      return {
+        label: i === 0 || i === daysInMonth - 1 || (i + 1) % 7 === 0
+          ? `${i + 1}`
+          : '',
         income: inc,
         expenses: exp,
-      });
-    }
-    return days;
-  }, [transactions]);
+      };
+    });
+  }, [transactions, dateFilter]);
+
+  // Filtered recent entries based on tab
+  const filteredEntries = useMemo(() => {
+    const base = monthlyTxs;
+    if (entryTab === 'all') return base.slice(0, 20);
+    return base.filter((t) => t.type === entryTab).slice(0, 20);
+  }, [monthlyTxs, entryTab]);
 
   const chartW = width - 24 * 2 - 16 * 2;
+
+  const entryTabs: { id: EntryTab; label: string }[] = [
+    { id: 'all', label: 'All' },
+    { id: 'expense', label: 'Expenses' },
+    { id: 'income', label: 'Income' },
+  ];
 
   return (
     <View style={{ gap: 32 }}>
@@ -73,25 +94,25 @@ export function DashboardScreen() {
         />
       </View>
 
-      <Section title="Cash Flow" subtitle="Last 30 days">
-        {transactions.length === 0 ? (
+      <Section title="Cash Flow" subtitle={`${chartDays.length}-day view`}>
+        {monthlyTxs.length === 0 ? (
           <Empty msg="No transactions yet. Tap the + below to begin." />
         ) : (
           <View style={styles.card}>
             <AreaChart
               width={chartW}
               height={220}
-              labels={last30.map((d) => d.label)}
+              labels={chartDays.map((d) => d.label)}
               series={[
                 {
                   color: colors.moss,
                   gradientId: 'gIn',
-                  values: last30.map((d) => d.income),
+                  values: chartDays.map((d) => d.income),
                 },
                 {
                   color: colors.clay,
                   gradientId: 'gEx',
-                  values: last30.map((d) => d.expenses),
+                  values: chartDays.map((d) => d.expenses),
                 },
               ]}
             />
@@ -103,16 +124,47 @@ export function DashboardScreen() {
         )}
       </Section>
 
-      <Section title="Recent Entries" subtitle={`${transactions.length} total`}>
-        {recent.length === 0 ? (
-          <Empty msg="Your ledger awaits its first entry." />
+      <Section
+        title="Recent Entries"
+        subtitle={`${filteredEntries.length} shown`}
+      >
+        {/* Type filter tabs */}
+        <View style={styles.entryTabs}>
+          {entryTabs.map(({ id, label }) => {
+            const active = entryTab === id;
+            const activeBg =
+              id === 'expense' ? colors.clay : id === 'income' ? colors.moss : colors.ink;
+            return (
+              <Pressable
+                key={id}
+                onPress={() => setEntryTab(id)}
+                style={[
+                  styles.entryTab,
+                  active && { backgroundColor: activeBg },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.entryTabLabel,
+                    { color: active ? colors.paper : colors.inkSoft },
+                  ]}
+                >
+                  {label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {filteredEntries.length === 0 ? (
+          <Empty msg="No entries for this period." />
         ) : (
           <View style={styles.list}>
-            {recent.map((t, i) => (
+            {filteredEntries.map((t, i) => (
               <TxRow
                 key={t.id}
                 t={t}
-                isLast={i === recent.length - 1}
+                isLast={i === filteredEntries.length - 1}
                 customCategories={customCategories}
               />
             ))}
@@ -137,6 +189,24 @@ const createStyles = (colors: any) =>
       gap: 18,
       justifyContent: 'center',
       marginTop: 8,
+    },
+    entryTabs: {
+      flexDirection: 'row',
+      gap: 6,
+      marginBottom: 12,
+      padding: 4,
+      backgroundColor: colors.chip,
+      borderRadius: 999,
+      alignSelf: 'flex-start',
+    },
+    entryTab: {
+      paddingHorizontal: 16,
+      paddingVertical: 7,
+      borderRadius: 999,
+    },
+    entryTabLabel: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: 12,
     },
     list: {
       backgroundColor: colors.cream,

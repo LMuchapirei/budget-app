@@ -2,12 +2,19 @@ import React, { createContext, useContext, useEffect, useState, useMemo, useCall
 import { Transaction, CustomCategory, Stats, Category } from '../types';
 import { storage } from '../services/storage';
 
+export interface DateFilter {
+  year: number;
+  month: number; // 0-indexed
+}
+
 interface BudgetContextValue {
   transactions: Transaction[];
   customCategories: CustomCategory[];
   stats: Stats;
   loading: boolean;
   currency: string;
+  dateFilter: DateFilter;
+  setDateFilter: (f: DateFilter) => void;
   addTransaction: (t: Omit<Transaction, 'id'>) => void;
   removeTransaction: (id: string) => void;
   addCustomCategory: (c: CustomCategory) => void;
@@ -23,6 +30,11 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   const [customCategories, setCustomCategories] = useState<CustomCategory[]>([]);
   const [currency, setCurrencyState] = useState<string>('$');
   const [loading, setLoading] = useState(true);
+  const now = new Date();
+  const [dateFilter, setDateFilter] = useState<DateFilter>({
+    year: now.getFullYear(),
+    month: now.getMonth(),
+  });
 
   useEffect(() => {
     (async () => {
@@ -89,17 +101,20 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   }, [currency]);
 
   const stats = useMemo<Stats>(() => {
-    const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const thisMonth = transactions.filter((t) => new Date(t.date) >= monthStart);
-    const income = thisMonth
+    const monthStart = new Date(dateFilter.year, dateFilter.month, 1);
+    const monthEnd = new Date(dateFilter.year, dateFilter.month + 1, 1);
+    const filtered = transactions.filter((t) => {
+      const d = new Date(t.date);
+      return d >= monthStart && d < monthEnd;
+    });
+    const income = filtered
       .filter((t) => t.type === 'income')
       .reduce((s, t) => s + Number(t.amount), 0);
-    const expenses = thisMonth
+    const expenses = filtered
       .filter((t) => t.type === 'expense')
       .reduce((s, t) => s + Number(t.amount), 0);
-    return { income, expenses, balance: income - expenses, count: thisMonth.length };
-  }, [transactions]);
+    return { income, expenses, balance: income - expenses, count: filtered.length };
+  }, [transactions, dateFilter]);
 
   return (
     <BudgetContext.Provider
@@ -109,6 +124,8 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
         stats,
         loading,
         currency,
+        dateFilter,
+        setDateFilter,
         addTransaction,
         removeTransaction,
         addCustomCategory,

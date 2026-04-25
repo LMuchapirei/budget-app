@@ -11,7 +11,6 @@ export function Section({ title, subtitle, children }: { title: string; subtitle
     <View>
       <View style={styles.sectionHead}>
         <Text style={styles.sectionTitle}>
-          <Text style={styles.sectionOrnament}>§ </Text>
           {title}
         </Text>
         {subtitle ? <Text style={styles.sectionSubtitle}>{subtitle}</Text> : null}
