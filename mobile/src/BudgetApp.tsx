@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { View, ScrollView, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import {
@@ -27,11 +28,13 @@ import { ProjectionsScreen } from './screens/ProjectionsScreen';
 import { ReportsScreen } from './screens/ReportsScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { TransactionForm } from './components/forms/TransactionForm';
+import { LockScreen } from './components/LockScreen';
 import { Modal } from 'react-native';
 
 function Layout() {
   const { colors, theme } = useTheme();
   const { loading } = useBudget();
+  const { isLocked } = useLock();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const [view, setView] = useState<ViewTab>('dashboard');
@@ -53,10 +56,18 @@ function Layout() {
         showsVerticalScrollIndicator={false}
       >
         <Header view={view} setView={setView} />
-        {view === 'dashboard' && <DashboardScreen />}
-        {view === 'projections' && <ProjectionsScreen />}
-        {view === 'reports' && <ReportsScreen />}
-        {view === 'settings' && <SettingsScreen />}
+        
+        <Animated.View 
+          key={view} 
+          entering={FadeIn.duration(250)} 
+          exiting={FadeOut.duration(200)}
+          style={{ flex: 1 }}
+        >
+          {view === 'dashboard' && <DashboardScreen />}
+          {view === 'projections' && <ProjectionsScreen />}
+          {view === 'reports' && <ReportsScreen />}
+          {view === 'settings' && <SettingsScreen />}
+        </Animated.View>
       </ScrollView>
 
       {view !== 'settings' && (
@@ -78,6 +89,8 @@ function Layout() {
       >
         <TransactionForm onClose={() => setShowForm(false)} />
       </Modal>
+
+      {isLocked && <LockScreen />}
     </SafeAreaView>
   );
 }
@@ -111,6 +124,8 @@ const createStyles = (colors: any) =>
     },
   });
 
+import { LockProvider, useLock } from './context/LockContext';
+
 export default function BudgetApp() {
   const [fontsLoaded] = useFonts({
     Fraunces_300Light,
@@ -128,7 +143,9 @@ export default function BudgetApp() {
     <SafeAreaProvider>
       <ThemeProvider>
         <BudgetProvider>
-          <Layout />
+          <LockProvider>
+            <Layout />
+          </LockProvider>
         </BudgetProvider>
       </ThemeProvider>
     </SafeAreaProvider>

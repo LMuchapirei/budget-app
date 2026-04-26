@@ -6,6 +6,7 @@ import { useBudget } from '../../context/BudgetContext';
 import { TxType, Category } from '../../types';
 import { fonts, CATEGORIES, colorFor } from '../../theme';
 import { Field, AddCategorySheet } from './AddCategorySheet';
+import Animated, { LinearTransition, ZoomIn } from 'react-native-reanimated';
 
 interface TransactionFormProps {
   onClose: () => void;
@@ -111,33 +112,35 @@ export function TransactionForm({ onClose }: TransactionFormProps) {
 
           <Field label="Category">
             <View style={styles.chipWrap}>
-              {currentCategories.map((c) => {
+              {currentCategories.map((c, i) => {
                 const active = category === c;
                 return (
-                  <Pressable
-                    key={c}
-                    onPress={() => setCategory(c)}
-                    style={[
-                      styles.chip,
-                      {
-                        backgroundColor: active
-                          ? colorFor(c, customCategories)
-                          : colors.chip,
-                      },
-                    ]}
-                  >
-                    <Text
+                  <Animated.View key={c} layout={LinearTransition.springify()} entering={ZoomIn.delay(i * 10).springify()}>
+                    <Pressable
+                      onPress={() => setCategory(c)}
                       style={[
-                        styles.chipLabel,
-                        { color: active ? colors.paper : colors.inkSoft },
+                        styles.chip,
+                        {
+                          backgroundColor: active
+                            ? colorFor(c, customCategories)
+                            : colors.chip,
+                        },
                       ]}
                     >
-                      {c}
-                    </Text>
-                  </Pressable>
+                      <Text
+                        style={[
+                          styles.chipLabel,
+                          { color: active ? colors.paper : colors.inkSoft },
+                        ]}
+                      >
+                        {c}
+                      </Text>
+                    </Pressable>
+                  </Animated.View>
                 );
               })}
-              <Pressable
+              <Animated.View layout={LinearTransition.springify()}>
+                <Pressable
                 onPress={() => setShowAddCategory(true)}
                 style={[
                   styles.chip,
@@ -146,6 +149,7 @@ export function TransactionForm({ onClose }: TransactionFormProps) {
               >
                 <Text style={[styles.chipLabel, { color: colors.stone500 }]}>+ New</Text>
               </Pressable>
+              </Animated.View>
             </View>
           </Field>
 

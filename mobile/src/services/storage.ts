@@ -14,6 +14,9 @@ export interface DataService {
   getCategories(): Promise<CustomCategory[]>;
   saveCategories(cats: CustomCategory[]): Promise<void>;
   
+  getAppLock(): Promise<boolean>;
+  setAppLock(enabled: boolean): Promise<void>;
+  
   clearAllData(): Promise<void>;
 }
 
@@ -22,6 +25,7 @@ class LocalDataService implements DataService {
   private readonly STORAGE_KEY = 'budget:transactions:v1';
   private readonly CAT_STORAGE_KEY = 'budget:categories:v1';
   private readonly CURRENCY_KEY = 'budget:currency:v1';
+  private readonly APPLOCK_KEY = 'budget:applock:v1';
 
   async getTheme(): Promise<string | null> {
     return AsyncStorage.getItem(this.THEME_KEY);
@@ -65,6 +69,15 @@ class LocalDataService implements DataService {
 
   async saveCategories(cats: CustomCategory[]): Promise<void> {
     await AsyncStorage.setItem(this.CAT_STORAGE_KEY, JSON.stringify(cats));
+  }
+
+  async getAppLock(): Promise<boolean> {
+    const val = await AsyncStorage.getItem(this.APPLOCK_KEY);
+    return val === 'true';
+  }
+
+  async setAppLock(enabled: boolean): Promise<void> {
+    await AsyncStorage.setItem(this.APPLOCK_KEY, enabled ? 'true' : 'false');
   }
 
   async clearAllData(): Promise<void> {

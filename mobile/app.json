@@ -13,10 +13,7 @@
       "backgroundColor": "#F5F1E8"
     },
     "ios": {
-      "supportsTablet": true,
-      "infoPlist": {
-        "NSFaceIDUsageDescription": "The Budget uses Face ID to keep your financial data private."
-      }
+      "supportsTablet": true
     },
     "android": {
       "adaptiveIcon": {
@@ -31,7 +28,12 @@
     },
     "plugins": [
       "expo-font",
-      "expo-local-authentication"
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow Budget to use Face ID to protect and unlock your journal."
+        }
+      ]
     ]
   }
 }

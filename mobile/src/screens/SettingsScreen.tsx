@@ -2,12 +2,14 @@ import React from 'react';
 import { View, Text, Switch, Pressable, StyleSheet } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import { useBudget } from '../context/BudgetContext';
+import { useLock } from '../context/LockContext';
 import { fonts } from '../theme';
-import { Moon, Trash2, DollarSign } from 'lucide-react-native';
+import { Moon, Trash2, DollarSign, Lock } from 'lucide-react-native';
 
 export function SettingsScreen() {
   const { theme, toggleTheme, colors } = useTheme();
   const { clearAllData, currency, setCurrency } = useBudget();
+  const { isAppLockEnabled, setAppLockEnabled } = useLock();
 
   const styles = React.useMemo(() => createStyles(colors), [colors]);
 
@@ -24,6 +26,19 @@ export function SettingsScreen() {
           <Switch
             value={theme === 'dark'}
             onValueChange={toggleTheme}
+            trackColor={{ true: colors.rust, false: colors.chip }}
+            thumbColor={colors.cream}
+          />
+        </View>
+
+        <View style={styles.row}>
+          <View style={styles.rowLeft}>
+            <Lock size={20} color={colors.stone500} />
+            <Text style={styles.rowLabel}>App Lock (Biometrics/Passcode)</Text>
+          </View>
+          <Switch
+            value={isAppLockEnabled}
+            onValueChange={async (val) => { await setAppLockEnabled(val); }}
             trackColor={{ true: colors.rust, false: colors.chip }}
             thumbColor={colors.cream}
           />

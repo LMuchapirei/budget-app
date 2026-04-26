@@ -3,6 +3,7 @@ import { View, Text, Pressable, StyleSheet, useWindowDimensions } from 'react-na
 import { TrendingUp, TrendingDown, Wallet } from 'lucide-react-native';
 import { useTheme } from '../context/ThemeContext';
 import { useBudget } from '../context/BudgetContext';
+import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated';
 import { AreaChart } from '../charts/AreaChart';
 import { StatCard } from '../components/ui/StatCard';
 import { Section, Empty, Legend } from '../components/ui/Layout';
@@ -167,12 +168,17 @@ export function DashboardScreen() {
         ) : (
           <View style={styles.list}>
             {filteredEntries.map((t, i) => (
-              <TxRow
+              <Animated.View 
                 key={t.id}
-                t={t}
-                isLast={i === filteredEntries.length - 1}
-                customCategories={customCategories}
-              />
+                entering={FadeInDown.delay(i * 30).springify()}
+                layout={LinearTransition.springify()}
+              >
+                <TxRow
+                  t={t}
+                  isLast={i === filteredEntries.length - 1}
+                  customCategories={customCategories}
+                />
+              </Animated.View>
             ))}
           </View>
         )}
