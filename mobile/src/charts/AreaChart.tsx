@@ -22,7 +22,7 @@ interface AreaChartProps {
   labels?: string[];
 }
 
-const PADDING = { top: 12, right: 8, bottom: 22, left: 32 };
+const PADDING = { top: 12, right: 16, bottom: 22, left: 40 };
 
 export function AreaChart({ width, height, series, labels }: AreaChartProps) {
   const { colors } = useTheme();
@@ -49,6 +49,14 @@ export function AreaChart({ width, height, series, labels }: AreaChartProps) {
   const gridLines = 4;
   const tickFormatter = (v: number) =>
     v >= 1000 ? `$${Math.round(v / 1000)}k` : `$${Math.round(v)}`;
+  const labelIndexes = new Set<number>();
+
+  if (labels && n > 0) {
+    const labelCount = Math.min(5, n);
+    for (let i = 0; i < labelCount; i++) {
+      labelIndexes.add(Math.round((i * (n - 1)) / Math.max(1, labelCount - 1)));
+    }
+  }
 
   return (
     <Svg width={width} height={height}>
@@ -113,7 +121,9 @@ export function AreaChart({ width, height, series, labels }: AreaChartProps) {
 
       {labels &&
         labels.map((label, i) => {
-          if (i % Math.ceil(n / 5) !== 0 && i !== n - 1) return null;
+          if (!labelIndexes.has(i)) return null;
+          const isFirst = i === 0;
+          const isLast = i === n - 1;
           return (
             <SvgText
               key={i}
@@ -121,7 +131,7 @@ export function AreaChart({ width, height, series, labels }: AreaChartProps) {
               y={height - 6}
               fontSize={9}
               fill={colors.stone400}
-              textAnchor="middle"
+              textAnchor={isFirst ? 'start' : isLast ? 'end' : 'middle'}
             >
               {label}
             </SvgText>

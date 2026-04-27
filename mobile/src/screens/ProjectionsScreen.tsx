@@ -8,7 +8,7 @@ import { fonts } from '../theme';
 
 export function ProjectionsScreen() {
   const { colors } = useTheme();
-  const { transactions, formatMoney } = useBudget();
+  const { transactions, transactionEditHistory, formatMoney } = useBudget();
   const { width } = useWindowDimensions();
 
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -39,6 +39,19 @@ export function ProjectionsScreen() {
 
   const chartW = width - 24 * 2 - 16 * 2;
   const positive = netMonthly >= 0;
+
+  const formatDelta = (value: number) => {
+    if (value === 0) return formatMoney(0);
+    return `${value > 0 ? '+' : '-'}${formatMoney(Math.abs(value))}`;
+  };
+
+  const formatEditDate = (iso: string) =>
+    new Date(iso).toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
 
   return (
     <View style={{ gap: 32 }}>
@@ -100,6 +113,50 @@ export function ProjectionsScreen() {
                 </Text>
               </View>
             ))}
+          </View>
+        )}
+      </Section>
+
+      <Section title="Projection Edit Trail" subtitle={`${transactionEditHistory.length} edits`}>
+        {transactionEditHistory.length === 0 ? (
+          <Empty msg="Edited recurring transactions will show their projection impact here." />
+        ) : (
+          <View style={{ gap: 10 }}>
+            {transactionEditHistory.slice(0, 12).map((edit) => {
+              const deltaColor =
+                edit.projectionMonthlyDelta > 0
+                  ? colors.moss
+                  : edit.projectionMonthlyDelta < 0
+                  ? colors.clay
+                  : colors.stone500;
+              const changedName = edit.before.description !== edit.after.description;
+              const title = changedName
+                ? `${edit.before.description} -> ${edit.after.description}`
+                : edit.after.description;
+
+              return (
+                <View key={edit.id} style={styles.historyCard}>
+                  <View style={{ flex: 1, gap: 3 }}>
+                    <Text style={styles.historyTitle}>{title}</Text>
+                    <Text style={styles.historyMeta}>
+                      Edited {formatEditDate(edit.editedAt)}
+                    </Text>
+                    <Text style={styles.historyMeta}>
+                      {edit.before.category} / {edit.after.category}
+                    </Text>
+                  </View>
+                  <View style={styles.historyImpact}>
+                    <Text style={[styles.historyDelta, { color: deltaColor }]}>
+                      {formatDelta(edit.projectionMonthlyDelta)}
+                    </Text>
+                    <Text style={styles.historyImpactLabel}>monthly</Text>
+                    <Text style={styles.historyAnnual}>
+                      {formatDelta(edit.projectionAnnualDelta)} yearly
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
           </View>
         )}
       </Section>
@@ -167,4 +224,44 @@ const createStyles = (colors: any) =>
       marginTop: 2,
     },
     recurringAmount: { fontFamily: fonts.displayLight, fontSize: 17 },
+    historyCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.cream,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: colors.borderSoft,
+      padding: 16,
+      gap: 12,
+    },
+    historyTitle: {
+      fontFamily: fonts.display,
+      fontSize: 15,
+      color: colors.ink,
+    },
+    historyMeta: {
+      fontFamily: fonts.body,
+      fontSize: 11,
+      color: colors.stone500,
+    },
+    historyImpact: {
+      alignItems: 'flex-end',
+      gap: 2,
+    },
+    historyDelta: {
+      fontFamily: fonts.displayLight,
+      fontSize: 17,
+    },
+    historyImpactLabel: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: 10,
+      color: colors.stone500,
+      textTransform: 'uppercase',
+      letterSpacing: 0.8,
+    },
+    historyAnnual: {
+      fontFamily: fonts.body,
+      fontSize: 10,
+      color: colors.stone500,
+    },
   });

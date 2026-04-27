@@ -10,6 +10,17 @@ export interface CustomCategory {
   color: string;
 }
 
+export interface LedgerAccount {
+  id: string;
+  name: string;
+  description: string;
+  color: string;
+  currencyCode: string;
+  currencySymbol: string;
+  accountNumber?: string;
+  isDefault?: boolean;
+}
+
 export interface Transaction {
   id: string;
   type: TxType;
@@ -18,6 +29,17 @@ export interface Transaction {
   category: Category;
   date: string;
   recurring: boolean;
+  ledgerId?: string;
+}
+
+export interface TransactionEditHistory {
+  id: string;
+  transactionId: string;
+  editedAt: string;
+  before: Transaction;
+  after: Transaction;
+  projectionMonthlyDelta: number;
+  projectionAnnualDelta: number;
 }
 
 export type ViewTab = 'dashboard' | 'projections' | 'reports' | 'settings';

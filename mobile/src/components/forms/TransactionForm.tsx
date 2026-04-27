@@ -1,38 +1,98 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, TextInput, Pressable, Switch, StyleSheet, KeyboardAvoidingView, Platform, Modal, ScrollView } from 'react-native';
-import { X, Repeat } from 'lucide-react-native';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import {
+  Keyboard,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import { CreditCard, X, Repeat } from 'lucide-react-native';
 import { useTheme } from '../../context/ThemeContext';
-import { useBudget } from '../../context/BudgetContext';
-import { TxType, Category } from '../../types';
+import { ALL_LEDGER_ID, useBudget } from '../../context/BudgetContext';
+import type { TxType, Category, Transaction } from '../../types';
 import { fonts, CATEGORIES, colorFor } from '../../theme';
 import { Field, AddCategorySheet } from './AddCategorySheet';
-import Animated, { LinearTransition, ZoomIn } from 'react-native-reanimated';
 
 interface TransactionFormProps {
   onClose: () => void;
+  transaction?: Transaction | null;
 }
 
-export function TransactionForm({ onClose }: TransactionFormProps) {
+export function TransactionForm({ onClose, transaction }: TransactionFormProps) {
   const { colors } = useTheme();
-  const { addTransaction, customCategories, addCustomCategory } = useBudget();
+  const {
+    addTransaction,
+    updateTransaction,
+    customCategories,
+    addCustomCategory,
+    ledgers,
+    activeLedgerId,
+  } = useBudget();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const isEditing = Boolean(transaction);
+  const preferredLedgerId =
+    transaction?.ledgerId ??
+    (activeLedgerId === ALL_LEDGER_ID ? ledgers[0]?.id : activeLedgerId) ??
+    ledgers[0]?.id;
 
-  const [type, setType] = useState<TxType>('expense');
-  const [amount, setAmount] = useState('');
-  const [description, setDescription] = useState('');
-  const [category, setCategory] = useState<Category>('Food');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [recurring, setRecurring] = useState(false);
+  const [type, setType] = useState<TxType>(transaction?.type ?? 'expense');
+  const [amount, setAmount] = useState(transaction ? String(transaction.amount) : '');
+  const [description, setDescription] = useState(transaction?.description ?? '');
+  const [category, setCategory] = useState<Category>(transaction?.category ?? 'Food');
+  const [ledgerId, setLedgerId] = useState(preferredLedgerId);
+  const [date, setDate] = useState(transaction?.date ?? new Date().toISOString().split('T')[0]);
+  const [recurring, setRecurring] = useState(transaction?.recurring ?? false);
   const [showAddCategory, setShowAddCategory] = useState(false);
+  const skipInitialCategoryReset = useRef(Boolean(transaction));
+  const selectedLedger = ledgers.find((ledger) => ledger.id === ledgerId) ?? ledgers[0];
 
   useEffect(() => {
+    if (skipInitialCategoryReset.current) {
+      skipInitialCategoryReset.current = false;
+      return;
+    }
     setCategory(type === 'income' ? 'Salary' : 'Food');
   }, [type]);
 
+  useEffect(() => {
+    if (!ledgerId && preferredLedgerId) {
+      setLedgerId(preferredLedgerId);
+    }
+  }, [ledgerId, preferredLedgerId]);
+
   const handleSubmit = () => {
+    Keyboard.dismiss();
     const n = Number(amount);
-    if (!amount || !description || Number.isNaN(n) || n <= 0) return;
-    addTransaction({ type, amount: n, description, category, date, recurring });
+    const targetLedgerId = ledgerId ?? ledgers[0]?.id;
+    if (!amount || !description.trim() || !targetLedgerId || Number.isNaN(n) || n <= 0) return;
+    if (transaction) {
+      updateTransaction({
+        ...transaction,
+        type,
+        amount: n,
+        description: description.trim(),
+        category,
+        ledgerId: targetLedgerId,
+        date,
+        recurring,
+      });
+    } else {
+      addTransaction({
+        type,
+        amount: n,
+        description: description.trim(),
+        category,
+        ledgerId: targetLedgerId,
+        date,
+        recurring,
+      });
+    }
     onClose();
   };
 
@@ -42,12 +102,16 @@ export function TransactionForm({ onClose }: TransactionFormProps) {
   ];
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalRoot}>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 16 : 0}
+      style={styles.modalRoot}
+    >
       <Pressable style={styles.modalBackdrop} onPress={onClose} />
       <View style={styles.sheet}>
         <View style={styles.sheetHandle} />
         <View style={styles.sheetHead}>
-          <Text style={styles.sheetTitle}>New entry</Text>
+          <Text style={styles.sheetTitle}>{isEditing ? 'Edit entry' : 'New entry'}</Text>
           <Pressable onPress={onClose} hitSlop={8} accessibilityLabel="Close">
             <X size={20} color={colors.stone500} />
           </Pressable>
@@ -82,19 +146,22 @@ export function TransactionForm({ onClose }: TransactionFormProps) {
         </View>
 
         <ScrollView
-          style={{ maxHeight: 420 }}
+          style={styles.formScroll}
           contentContainerStyle={{ gap: 18, paddingBottom: 8 }}
-          keyboardShouldPersistTaps="handled"
+          keyboardShouldPersistTaps="always"
+          keyboardDismissMode="on-drag"
         >
           <Field label="Amount">
             <View style={styles.amountRow}>
-              <Text style={styles.amountSign}>$</Text>
+              <Text style={styles.amountSign}>{selectedLedger?.currencySymbol ?? '$'}</Text>
               <TextInput
                 value={amount}
                 onChangeText={setAmount}
                 placeholder="0.00"
                 placeholderTextColor={colors.stone400}
                 keyboardType="decimal-pad"
+                returnKeyType="done"
+                onSubmitEditing={Keyboard.dismiss}
                 style={styles.amountInput}
               />
             </View>
@@ -106,6 +173,8 @@ export function TransactionForm({ onClose }: TransactionFormProps) {
               onChangeText={setDescription}
               placeholder="What was it for?"
               placeholderTextColor={colors.stone400}
+              returnKeyType="done"
+              onSubmitEditing={Keyboard.dismiss}
               style={styles.input}
             />
           </Field>
@@ -115,7 +184,7 @@ export function TransactionForm({ onClose }: TransactionFormProps) {
               {currentCategories.map((c, i) => {
                 const active = category === c;
                 return (
-                  <Animated.View key={c} layout={LinearTransition.springify()} entering={ZoomIn.delay(i * 10).springify()}>
+                  <View key={c}>
                     <Pressable
                       onPress={() => setCategory(c)}
                       style={[
@@ -136,10 +205,10 @@ export function TransactionForm({ onClose }: TransactionFormProps) {
                         {c}
                       </Text>
                     </Pressable>
-                  </Animated.View>
+                  </View>
                 );
               })}
-              <Animated.View layout={LinearTransition.springify()}>
+              <View>
                 <Pressable
                 onPress={() => setShowAddCategory(true)}
                 style={[
@@ -149,7 +218,36 @@ export function TransactionForm({ onClose }: TransactionFormProps) {
               >
                 <Text style={[styles.chipLabel, { color: colors.stone500 }]}>+ New</Text>
               </Pressable>
-              </Animated.View>
+              </View>
+            </View>
+          </Field>
+
+          <Field label="Account">
+            <View style={styles.chipWrap}>
+              {ledgers.map((ledger) => {
+                const active = ledgerId === ledger.id;
+                return (
+                  <Pressable
+                    key={ledger.id}
+                    onPress={() => setLedgerId(ledger.id)}
+                    style={[
+                      styles.accountChip,
+                      active && { backgroundColor: colors.ink },
+                    ]}
+                  >
+                    <CreditCard size={13} color={active ? colors.paper : colors.stone500} />
+                    <Text
+                      style={[
+                        styles.chipLabel,
+                        { color: active ? colors.paper : colors.inkSoft },
+                      ]}
+                    >
+                      {ledger.name}
+                      <Text style={styles.accountCurrency}> {ledger.currencySymbol}</Text>
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </View>
           </Field>
 
@@ -160,6 +258,8 @@ export function TransactionForm({ onClose }: TransactionFormProps) {
               placeholder="YYYY-MM-DD"
               placeholderTextColor={colors.stone400}
               autoCapitalize="none"
+              returnKeyType="done"
+              onSubmitEditing={Keyboard.dismiss}
               style={styles.input}
             />
           </Field>
@@ -180,14 +280,14 @@ export function TransactionForm({ onClose }: TransactionFormProps) {
 
         <Pressable
           onPress={handleSubmit}
-          disabled={!amount || !description}
+          disabled={!amount || !description.trim() || !selectedLedger}
           style={({ pressed }) => [
             styles.submit,
-            (!amount || !description) && styles.submitDisabled,
+            (!amount || !description.trim() || !selectedLedger) && styles.submitDisabled,
             pressed && { opacity: 0.85 },
           ]}
         >
-          <Text style={styles.submitLabel}>Add to ledger</Text>
+          <Text style={styles.submitLabel}>{isEditing ? 'Save changes' : 'Add to ledger'}</Text>
         </Pressable>
       </View>
 
@@ -219,6 +319,7 @@ const createStyles = (colors: any) =>
       borderWidth: 1,
       borderColor: 'rgba(139,90,60,0.2)',
       gap: 18,
+      maxHeight: '90%',
     },
     sheetHandle: {
       alignSelf: 'center',
@@ -255,6 +356,9 @@ const createStyles = (colors: any) =>
       fontFamily: fonts.bodyMedium,
       fontSize: 13,
     },
+    formScroll: {
+      maxHeight: 420,
+    },
     amountRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
     amountSign: { fontFamily: fonts.displayLight, fontSize: 28, color: colors.stone400 },
     amountInput: {
@@ -278,9 +382,22 @@ const createStyles = (colors: any) =>
       paddingVertical: 7,
       borderRadius: 999,
     },
+    accountChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+      borderRadius: 999,
+      backgroundColor: colors.chip,
+    },
     chipLabel: {
       fontFamily: fonts.bodyMedium,
       fontSize: 12,
+    },
+    accountCurrency: {
+      fontFamily: fonts.body,
+      fontSize: 11,
     },
     recurringRow: {
       flexDirection: 'row',

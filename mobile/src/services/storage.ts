@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Transaction, CustomCategory } from '../types';
+import type { Transaction, CustomCategory, TransactionEditHistory, LedgerAccount } from '../types';
 
 export interface DataService {
   getTheme(): Promise<string | null>;
@@ -10,6 +10,15 @@ export interface DataService {
   
   getTransactions(): Promise<Transaction[]>;
   saveTransactions(txs: Transaction[]): Promise<void>;
+
+  getLedgers(): Promise<LedgerAccount[]>;
+  saveLedgers(ledgers: LedgerAccount[]): Promise<void>;
+
+  getActiveLedger(): Promise<string | null>;
+  setActiveLedger(id: string): Promise<void>;
+
+  getTransactionEditHistory(): Promise<TransactionEditHistory[]>;
+  saveTransactionEditHistory(history: TransactionEditHistory[]): Promise<void>;
   
   getCategories(): Promise<CustomCategory[]>;
   saveCategories(cats: CustomCategory[]): Promise<void>;
@@ -23,6 +32,9 @@ export interface DataService {
 class LocalDataService implements DataService {
   private readonly THEME_KEY = 'budget:theme:v1';
   private readonly STORAGE_KEY = 'budget:transactions:v1';
+  private readonly LEDGER_KEY = 'budget:ledgers:v1';
+  private readonly ACTIVE_LEDGER_KEY = 'budget:active-ledger:v1';
+  private readonly EDIT_HISTORY_KEY = 'budget:transaction-edits:v1';
   private readonly CAT_STORAGE_KEY = 'budget:categories:v1';
   private readonly CURRENCY_KEY = 'budget:currency:v1';
   private readonly APPLOCK_KEY = 'budget:applock:v1';
@@ -57,6 +69,42 @@ class LocalDataService implements DataService {
     await AsyncStorage.setItem(this.STORAGE_KEY, JSON.stringify(txs));
   }
 
+  async getLedgers(): Promise<LedgerAccount[]> {
+    const raw = await AsyncStorage.getItem(this.LEDGER_KEY);
+    if (!raw) return [];
+    try {
+      return JSON.parse(raw) as LedgerAccount[];
+    } catch {
+      return [];
+    }
+  }
+
+  async saveLedgers(ledgers: LedgerAccount[]): Promise<void> {
+    await AsyncStorage.setItem(this.LEDGER_KEY, JSON.stringify(ledgers));
+  }
+
+  async getActiveLedger(): Promise<string | null> {
+    return AsyncStorage.getItem(this.ACTIVE_LEDGER_KEY);
+  }
+
+  async setActiveLedger(id: string): Promise<void> {
+    await AsyncStorage.setItem(this.ACTIVE_LEDGER_KEY, id);
+  }
+
+  async getTransactionEditHistory(): Promise<TransactionEditHistory[]> {
+    const raw = await AsyncStorage.getItem(this.EDIT_HISTORY_KEY);
+    if (!raw) return [];
+    try {
+      return JSON.parse(raw) as TransactionEditHistory[];
+    } catch {
+      return [];
+    }
+  }
+
+  async saveTransactionEditHistory(history: TransactionEditHistory[]): Promise<void> {
+    await AsyncStorage.setItem(this.EDIT_HISTORY_KEY, JSON.stringify(history));
+  }
+
   async getCategories(): Promise<CustomCategory[]> {
     const raw = await AsyncStorage.getItem(this.CAT_STORAGE_KEY);
     if (!raw) return [];
@@ -81,7 +129,13 @@ class LocalDataService implements DataService {
   }
 
   async clearAllData(): Promise<void> {
-    await AsyncStorage.multiRemove([this.STORAGE_KEY, this.CAT_STORAGE_KEY]);
+    await AsyncStorage.multiRemove([
+      this.STORAGE_KEY,
+      this.CAT_STORAGE_KEY,
+      this.EDIT_HISTORY_KEY,
+      this.LEDGER_KEY,
+      this.ACTIVE_LEDGER_KEY,
+    ]);
   }
 }
 

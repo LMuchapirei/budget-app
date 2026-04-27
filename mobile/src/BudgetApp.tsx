@@ -1,6 +1,5 @@
 import React, { useState, useMemo } from 'react';
 import { View, ScrollView, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
-import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import {
@@ -19,7 +18,7 @@ import { Plus } from 'lucide-react-native';
 
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { BudgetProvider, useBudget } from './context/BudgetContext';
-import { ViewTab } from './types';
+import type { Transaction, ViewTab } from './types';
 import { colors as fallbackColors } from './theme';
 
 import { Header } from './components/Header';
@@ -39,6 +38,7 @@ function Layout() {
 
   const [view, setView] = useState<ViewTab>('dashboard');
   const [showForm, setShowForm] = useState(false);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
 
   if (loading) {
     return (
@@ -57,24 +57,29 @@ function Layout() {
       >
         <Header view={view} setView={setView} />
         
-        <Animated.View 
-          key={view} 
-          entering={FadeIn.duration(250)} 
-          exiting={FadeOut.duration(200)}
-          style={{ flex: 1 }}
-        >
-          {view === 'dashboard' && <DashboardScreen />}
+        <View key={view} style={{ flex: 1 }}>
+          {view === 'dashboard' && (
+            <DashboardScreen
+              onEditTransaction={(transaction) => {
+                setEditingTransaction(transaction);
+                setShowForm(true);
+              }}
+            />
+          )}
           {view === 'projections' && <ProjectionsScreen />}
           {view === 'reports' && <ReportsScreen />}
           {view === 'settings' && <SettingsScreen />}
-        </Animated.View>
+        </View>
       </ScrollView>
 
       {view !== 'settings' && (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Add transaction"
-          onPress={() => setShowForm(true)}
+          onPress={() => {
+            setEditingTransaction(null);
+            setShowForm(true);
+          }}
           style={({ pressed }) => [styles.fab, pressed && { opacity: 0.85 }]}
         >
           <Plus size={28} color="#fff" strokeWidth={2} />
@@ -85,9 +90,20 @@ function Layout() {
         visible={showForm}
         transparent
         animationType="slide"
-        onRequestClose={() => setShowForm(false)}
+        onRequestClose={() => {
+          setEditingTransaction(null);
+          setShowForm(false);
+        }}
       >
-        <TransactionForm onClose={() => setShowForm(false)} />
+        {showForm && (
+          <TransactionForm
+            transaction={editingTransaction}
+            onClose={() => {
+              setEditingTransaction(null);
+              setShowForm(false);
+            }}
+          />
+        )}
       </Modal>
 
       {isLocked && <LockScreen />}
