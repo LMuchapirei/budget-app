@@ -1,6 +1,6 @@
 # Budget Mobile Memory
 
-Last updated: 2026-04-27
+Last updated: 2026-05-02
 
 ## Project
 
@@ -86,13 +86,13 @@ Last updated: 2026-04-27
 - `src/types/index.ts`: data models.
 - `src/screens/DashboardScreen.tsx`: Ledger tab UI, account selector, add account sheet, cash flow, recent entries.
 - `src/components/forms/TransactionForm.tsx`: add/edit transaction sheet.
+- `src/components/forms/LedgerSheet.tsx`: add/edit account sheet with archive, set-default, and delete-with-reassignment.
 - `src/components/ui/TxRow.tsx`: transaction row gestures, detail sheet, audit trail.
 - `src/charts/AreaChart.tsx`: cash flow chart rendering.
 - `src/utils/recurring.ts`: recurring schedule engine, occurrence generation, due dates, monthly impact estimates.
 
 ## Known Follow-Ups
 
-- Add account editing and account deletion.
 - Add transfer transactions between accounts.
 - Add exchange-rate handling before summing mixed currencies in All Accounts.
 - Add a proper date picker to transaction form.
@@ -102,10 +102,12 @@ Last updated: 2026-04-27
 ## Partial Features
 
 - Ledger/account management:
-  - Accounts can be created and selected.
-  - Transactions can be assigned to accounts.
-  - Account currency and masked account number display exist.
-  - Missing account editing, deletion, reordering, and color/symbol customization.
+  - Accounts can be created, edited, archived, restored, and deleted from the dashboard.
+  - Edit sheet supports name, description, account type, currency, account number, opening balance, and color.
+  - Archive hides an account from chips and the transaction form selector but keeps its history.
+  - Delete is blocked for the default account; otherwise it requires reassigning linked transactions to another active account.
+  - Default account flag can be moved between accounts from the edit sheet.
+  - Reordering is not implemented yet.
 - Multi-currency support:
   - Individual accounts can have their own currency symbol.
   - Transaction rows and selected account totals use account currency.
@@ -152,11 +154,8 @@ Last updated: 2026-04-27
 ## Yet To Be Implemented
 
 - Account management:
-  - Edit account name, description, currency, account number, color, and default status.
-  - Delete/archive account safely.
-  - Prevent deleting accounts with transactions, or offer reassignment.
-  - Account opening balance.
-  - Account type such as cash, bank, mobile money, credit card, loan, savings.
+  - Reorder accounts in the chip strip.
+  - Per-account credit limit / overdraft warning for credit cards and loans.
 - Transfers:
   - Transfer money between accounts.
   - Represent transfer as linked debit/credit entries.

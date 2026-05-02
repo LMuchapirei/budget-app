@@ -47,7 +47,7 @@ export function SettingsScreen() {
 
         <View style={styles.divider} />
 
-        <View style={styles.row}>
+        <View style={styles.currencyRow}>
           <View style={styles.rowLeft}>
             <DollarSign size={20} color={colors.stone500} />
             <Text style={styles.rowLabel}>Reporting Currency</Text>
@@ -115,6 +115,10 @@ const createStyles = (colors: any) =>
       justifyContent: 'space-between',
       padding: 16,
     },
+    currencyRow: {
+      padding: 16,
+      gap: 12,
+    },
     rowLeft: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -133,17 +137,19 @@ const createStyles = (colors: any) =>
     currencyToggle: {
       flexDirection: 'row',
       flexWrap: 'wrap',
-      justifyContent: 'flex-end',
-      gap: 4,
+      gap: 8,
       backgroundColor: colors.chip,
-      padding: 4,
-      borderRadius: 8,
-      maxWidth: 230,
+      padding: 6,
+      borderRadius: 12,
+      alignSelf: 'stretch',
     },
     currencyBtn: {
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      borderRadius: 6,
+      flexGrow: 1,
+      flexBasis: '30%',
+      alignItems: 'center',
+      paddingHorizontal: 10,
+      paddingVertical: 10,
+      borderRadius: 8,
     },
     currencyBtnText: {
       fontFamily: fonts.bodyMedium,

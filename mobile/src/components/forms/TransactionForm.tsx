@@ -32,14 +32,23 @@ export function TransactionForm({ onClose, transaction }: TransactionFormProps) 
     customCategories,
     addCustomCategory,
     ledgers,
+    activeLedgers,
     activeLedgerId,
   } = useBudget();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const isEditing = Boolean(transaction);
+  const selectableLedgers = useMemo(() => {
+    if (!transaction?.ledgerId) return activeLedgers;
+    if (activeLedgers.some((l) => l.id === transaction.ledgerId)) return activeLedgers;
+    const archivedTarget = ledgers.find((l) => l.id === transaction.ledgerId);
+    return archivedTarget ? [...activeLedgers, archivedTarget] : activeLedgers;
+  }, [activeLedgers, ledgers, transaction?.ledgerId]);
   const preferredLedgerId =
     transaction?.ledgerId ??
-    (activeLedgerId === ALL_LEDGER_ID ? ledgers[0]?.id : activeLedgerId) ??
-    ledgers[0]?.id;
+    (activeLedgerId === ALL_LEDGER_ID
+      ? selectableLedgers[0]?.id
+      : activeLedgerId) ??
+    selectableLedgers[0]?.id;
 
   const [type, setType] = useState<TxType>(transaction?.type ?? 'expense');
   const [amount, setAmount] = useState(transaction ? String(transaction.amount) : '');
@@ -63,7 +72,8 @@ export function TransactionForm({ onClose, transaction }: TransactionFormProps) 
   );
   const [showAddCategory, setShowAddCategory] = useState(false);
   const skipInitialCategoryReset = useRef(Boolean(transaction));
-  const selectedLedger = ledgers.find((ledger) => ledger.id === ledgerId) ?? ledgers[0];
+  const selectedLedger =
+    ledgers.find((ledger) => ledger.id === ledgerId) ?? selectableLedgers[0];
 
   useEffect(() => {
     if (skipInitialCategoryReset.current) {
@@ -82,7 +92,7 @@ export function TransactionForm({ onClose, transaction }: TransactionFormProps) 
   const handleSubmit = () => {
     Keyboard.dismiss();
     const n = Number(amount);
-    const targetLedgerId = ledgerId ?? ledgers[0]?.id;
+    const targetLedgerId = ledgerId ?? selectableLedgers[0]?.id;
     if (!amount || !description.trim() || !targetLedgerId || Number.isNaN(n) || n <= 0) return;
     const interval = Math.max(1, Number(recurringInterval) || 1);
     const reminder = Math.max(0, Number(reminderDaysBefore) || 0);
@@ -250,7 +260,7 @@ export function TransactionForm({ onClose, transaction }: TransactionFormProps) 
 
           <Field label="Account">
             <View style={styles.chipWrap}>
-              {ledgers.map((ledger) => {
+              {selectableLedgers.map((ledger) => {
                 const active = ledgerId === ledger.id;
                 return (
                   <Pressable

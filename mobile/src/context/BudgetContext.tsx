@@ -37,6 +37,7 @@ interface BudgetContextValue {
   transactions: Transaction[];
   scopedTransactions: Transaction[];
   ledgers: LedgerAccount[];
+  activeLedgers: LedgerAccount[];
   activeLedgerId: string;
   activeLedger: LedgerAccount | null;
   transactionEditHistory: TransactionEditHistory[];
@@ -52,6 +53,13 @@ interface BudgetContextValue {
   setDateFilter: (f: DateFilter) => void;
   setActiveLedger: (id: string) => void;
   addLedger: (ledger: Omit<LedgerAccount, 'id'>) => void;
+  updateLedger: (ledger: LedgerAccount) => void;
+  archiveLedger: (id: string) => void;
+  unarchiveLedger: (id: string) => void;
+  deleteLedger: (id: string, reassignToId?: string) => void;
+  setDefaultLedger: (id: string) => void;
+  ledgerTransactionCount: (id: string) => number;
+  ledgerOpeningBalance: (id: string) => number;
   addTransaction: (t: Omit<Transaction, 'id'>) => void;
   updateTransaction: (t: Transaction) => void;
   removeTransaction: (id: string) => void;
@@ -150,7 +158,8 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
         const savedActiveLedger = storage.getActiveLedger ? await storage.getActiveLedger() : null;
         if (
           savedActiveLedger &&
-          (savedActiveLedger === ALL_LEDGER_ID || nextLedgers.some((l) => l.id === savedActiveLedger))
+          (savedActiveLedger === ALL_LEDGER_ID ||
+            nextLedgers.some((l) => l.id === savedActiveLedger && !l.archived))
         ) {
           setActiveLedgerId(savedActiveLedger);
         }
@@ -289,6 +298,67 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     setActiveLedger(nextLedger.id);
   };
 
+  const updateLedger = (updated: LedgerAccount) => {
+    const normalized = normalizeLedger(updated);
+    persistLedgers(ledgers.map((l) => (l.id === normalized.id ? normalized : l)));
+  };
+
+  const archiveLedger = (id: string) => {
+    const ledger = ledgers.find((l) => l.id === id);
+    if (!ledger || ledger.isDefault) return;
+    persistLedgers(
+      ledgers.map((l) => (l.id === id ? { ...l, archived: true } : l)),
+    );
+    if (activeLedgerId === id) setActiveLedger(ALL_LEDGER_ID);
+  };
+
+  const unarchiveLedger = (id: string) => {
+    persistLedgers(
+      ledgers.map((l) => (l.id === id ? { ...l, archived: false } : l)),
+    );
+  };
+
+  const setDefaultLedger = (id: string) => {
+    const target = ledgers.find((l) => l.id === id);
+    if (!target || target.archived) return;
+    persistLedgers(
+      ledgers.map((l) => ({ ...l, isDefault: l.id === id })),
+    );
+  };
+
+  const deleteLedger = (id: string, reassignToId?: string) => {
+    const ledger = ledgers.find((l) => l.id === id);
+    if (!ledger || ledger.isDefault) return;
+
+    const linked = transactions.filter((t) => (t.ledgerId ?? DEFAULT_LEDGER_ID) === id);
+    if (linked.length > 0) {
+      if (!reassignToId) return;
+      const target = ledgers.find((l) => l.id === reassignToId && !l.archived);
+      if (!target || target.id === id) return;
+      const reassigned = transactions.map((t) =>
+        (t.ledgerId ?? DEFAULT_LEDGER_ID) === id ? { ...t, ledgerId: reassignToId } : t,
+      );
+      persistTransactions(reassigned);
+    }
+
+    persistLedgers(ledgers.filter((l) => l.id !== id));
+    if (activeLedgerId === id) setActiveLedger(ALL_LEDGER_ID);
+  };
+
+  const ledgerTransactionCount = useCallback(
+    (id: string) =>
+      transactions.filter((t) => (t.ledgerId ?? DEFAULT_LEDGER_ID) === id).length,
+    [transactions],
+  );
+
+  const ledgerOpeningBalance = useCallback(
+    (id: string) => {
+      const ledger = ledgers.find((l) => l.id === id);
+      return Number(ledger?.openingBalance ?? 0);
+    },
+    [ledgers],
+  );
+
   const addTransaction = (t: Omit<Transaction, 'id'>) => {
     const ledgerId =
       t.ledgerId ??
@@ -405,6 +475,11 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     return transactions.filter((t) => (t.ledgerId ?? DEFAULT_LEDGER_ID) === activeLedgerId);
   }, [transactions, activeLedgerId]);
 
+  const activeLedgers = useMemo(
+    () => ledgers.filter((ledger) => !ledger.archived),
+    [ledgers],
+  );
+
   const activeLedger = useMemo(() => {
     if (activeLedgerId === ALL_LEDGER_ID) return null;
     return ledgers.find((ledger) => ledger.id === activeLedgerId) ?? null;
@@ -477,6 +552,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
         transactions,
         scopedTransactions,
         ledgers,
+        activeLedgers,
         activeLedgerId,
         activeLedger,
         transactionEditHistory,
@@ -492,6 +568,13 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
         setDateFilter,
         setActiveLedger,
         addLedger,
+        updateLedger,
+        archiveLedger,
+        unarchiveLedger,
+        deleteLedger,
+        setDefaultLedger,
+        ledgerTransactionCount,
+        ledgerOpeningBalance,
         addTransaction,
         updateTransaction,
         removeTransaction,

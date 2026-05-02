@@ -36,6 +36,15 @@ export interface CustomCategory {
   color: string;
 }
 
+export type LedgerType =
+  | 'cash'
+  | 'bank'
+  | 'credit-card'
+  | 'savings'
+  | 'mobile-money'
+  | 'loan'
+  | 'other';
+
 export interface LedgerAccount {
   id: string;
   name: string;
@@ -44,6 +53,9 @@ export interface LedgerAccount {
   currencyCode: string;
   currencySymbol: string;
   accountNumber?: string;
+  accountType?: LedgerType;
+  openingBalance?: number;
+  archived?: boolean;
   isDefault?: boolean;
 }
 

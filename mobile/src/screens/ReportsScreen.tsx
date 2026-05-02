@@ -121,7 +121,7 @@ export function ReportsScreen() {
         )}
       </Section>
 
-      <Section title="Monthly Comparison" subtitle="Last 6 months">
+      <Section title="Monthly Comparison" subtitle={`Last 6 months in ${reportingCurrency.code}`}>
         <View style={styles.card}>
           <BarChart width={chartW} height={240} data={byMonth} formatTick={formatCompactMoney} />
           <View style={styles.legendWrapper}>

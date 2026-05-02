@@ -23,7 +23,6 @@ export function ProjectionsScreen() {
     ledgers,
     reportingCurrency,
     formatReportingMoney,
-    formatMoneyForLedger,
     formatCompactMoney,
     convertAmountToReporting,
   } = useBudget();
@@ -41,13 +40,13 @@ export function ProjectionsScreen() {
   const ledgerCurrencyCode = (ledgerId?: string | null) =>
     ledgers.find((ledger) => ledger.id === ledgerId)?.currencyCode ?? reportingCurrency.code;
 
+  const amountInReportingCurrency = (amount: number, ledgerId?: string | null) =>
+    convertAmountToReporting(amount, ledgerCurrencyCode(ledgerId)).amount;
+
   const monthlyAverage = recurring.reduce((sum, transaction) => {
     return (
       sum +
-      convertAmountToReporting(
-        estimateMonthlyImpact(transaction),
-        ledgerCurrencyCode(transaction.ledgerId),
-      ).amount
+      amountInReportingCurrency(estimateMonthlyImpact(transaction), transaction.ledgerId)
     );
   }, 0);
 
@@ -65,10 +64,7 @@ export function ProjectionsScreen() {
           const signedAmount = occurrence.type === 'income' ? occurrence.amount : -occurrence.amount;
           return (
             sum +
-            convertAmountToReporting(
-              signedAmount,
-              ledgerCurrencyCode(occurrence.source.ledgerId),
-            ).amount
+            amountInReportingCurrency(signedAmount, occurrence.source.ledgerId)
           );
         }, 0);
       cumulative += monthNet;
@@ -83,9 +79,9 @@ export function ProjectionsScreen() {
   const chartW = width - 24 * 2 - 16 * 2;
   const positive = monthlyAverage >= 0;
 
-  const formatLedgerDelta = (value: number, ledgerId?: string | null) => {
-    if (value === 0) return formatMoneyForLedger(0, ledgerId);
-    return `${value > 0 ? '+' : '-'}${formatMoneyForLedger(Math.abs(value), ledgerId)}`;
+  const formatReportingDelta = (value: number) => {
+    if (value === 0) return formatReportingMoney(0);
+    return `${value > 0 ? '+' : '-'}${formatReportingMoney(Math.abs(value))}`;
   };
 
   const formatEditDate = (iso: string) =>
@@ -118,7 +114,7 @@ export function ProjectionsScreen() {
         </Text>
       </View>
 
-      <Section title="12-Month Projection" subtitle="Scheduled net balance">
+      <Section title="12-Month Projection" subtitle={`Scheduled net balance in ${reportingCurrency.code}`}>
         {recurring.length === 0 ? (
           <Empty msg="Create a recurring schedule to see projections here." />
         ) : (
@@ -134,49 +130,59 @@ export function ProjectionsScreen() {
         )}
       </Section>
 
-      <Section title="Bill Calendar" subtitle={`${upcoming.slice(0, 8).length} upcoming`}>
+      <Section
+        title="Bill Calendar"
+        subtitle={`${upcoming.slice(0, 8).length} upcoming in ${reportingCurrency.code}`}
+      >
         {upcoming.length === 0 ? (
           <Empty msg="No upcoming recurring due dates." />
         ) : (
           <View style={{ gap: 10 }}>
-            {upcoming.slice(0, 8).map((occurrence) => (
-              <View key={`${occurrence.source.id}-${occurrence.dueDate}`} style={styles.calendarCard}>
-                <View style={styles.datePill}>
-                  <Text style={styles.dateMonth}>
-                    {formatMonth(occurrence.dueDate)}
+            {upcoming.slice(0, 8).map((occurrence) => {
+              const reportingAmount = amountInReportingCurrency(
+                occurrence.amount,
+                occurrence.source.ledgerId,
+              );
+              return (
+                <View key={`${occurrence.source.id}-${occurrence.dueDate}`} style={styles.calendarCard}>
+                  <View style={styles.datePill}>
+                    <Text style={styles.dateMonth}>
+                      {formatMonth(occurrence.dueDate)}
+                    </Text>
+                    <Text style={styles.dateDay}>{formatDay(occurrence.dueDate)}</Text>
+                  </View>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.recurringTitle} numberOfLines={2}>
+                      {occurrence.source.description}
+                    </Text>
+                    <Text style={styles.recurringMeta} numberOfLines={2}>
+                      {occurrence.source.category} - {getRecurringDescription(occurrence.source)}
+                    </Text>
+                  </View>
+                  <Text
+                    style={[
+                      styles.recurringAmount,
+                      { color: occurrence.type === 'income' ? colors.moss : colors.clay },
+                    ]}
+                  >
+                    {occurrence.type === 'income' ? '+' : '-'}
+                    {formatReportingMoney(reportingAmount)}
                   </Text>
-                  <Text style={styles.dateDay}>{formatDay(occurrence.dueDate)}</Text>
                 </View>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={styles.recurringTitle} numberOfLines={2}>
-                    {occurrence.source.description}
-                  </Text>
-                  <Text style={styles.recurringMeta} numberOfLines={2}>
-                    {occurrence.source.category} - {getRecurringDescription(occurrence.source)}
-                  </Text>
-                </View>
-                <Text
-                  style={[
-                    styles.recurringAmount,
-                    { color: occurrence.type === 'income' ? colors.moss : colors.clay },
-                  ]}
-                >
-                  {occurrence.type === 'income' ? '+' : '-'}
-                  {formatMoneyForLedger(occurrence.amount, occurrence.source.ledgerId)}
-                </Text>
-              </View>
-            ))}
+              );
+            })}
           </View>
         )}
       </Section>
 
-      <Section title="Recurring Items" subtitle={`${recurring.length} active`}>
+      <Section title="Recurring Items" subtitle={`${recurring.length} active in ${reportingCurrency.code}`}>
         {recurring.length === 0 ? (
           <Empty msg="No recurring transactions yet." />
         ) : (
           <View style={{ gap: 10 }}>
             {recurring.map((t) => {
               const nextDue = getNextOccurrenceDate(t);
+              const reportingAmount = amountInReportingCurrency(t.amount, t.ledgerId);
               return (
                 <View key={t.id} style={styles.recurringCard}>
                   <View style={{ flex: 1, minWidth: 0 }}>
@@ -193,7 +199,7 @@ export function ProjectionsScreen() {
                     ]}
                   >
                     {t.type === 'income' ? '+' : '-'}
-                    {formatMoneyForLedger(t.amount, t.ledgerId)}
+                    {formatReportingMoney(reportingAmount)}
                   </Text>
                 </View>
               );
@@ -202,16 +208,27 @@ export function ProjectionsScreen() {
         )}
       </Section>
 
-      <Section title="Projection Edit Trail" subtitle={`${transactionEditHistory.length} edits`}>
+      <Section
+        title="Projection Edit Trail"
+        subtitle={`${transactionEditHistory.length} edits in ${reportingCurrency.code}`}
+      >
         {transactionEditHistory.length === 0 ? (
           <Empty msg="Edited recurring transactions will show their projection impact here." />
         ) : (
           <View style={{ gap: 10 }}>
             {transactionEditHistory.slice(0, 12).map((edit) => {
+              const monthlyDelta = amountInReportingCurrency(
+                edit.projectionMonthlyDelta,
+                edit.after.ledgerId,
+              );
+              const annualDelta = amountInReportingCurrency(
+                edit.projectionAnnualDelta,
+                edit.after.ledgerId,
+              );
               const deltaColor =
-                edit.projectionMonthlyDelta > 0
+                monthlyDelta > 0
                   ? colors.moss
-                  : edit.projectionMonthlyDelta < 0
+                  : monthlyDelta < 0
                   ? colors.clay
                   : colors.stone500;
               const changedName = edit.before.description !== edit.after.description;
@@ -232,11 +249,11 @@ export function ProjectionsScreen() {
                   </View>
                   <View style={styles.historyImpact}>
                     <Text style={[styles.historyDelta, { color: deltaColor }]}>
-                      {formatLedgerDelta(edit.projectionMonthlyDelta, edit.after.ledgerId)}
+                      {formatReportingDelta(monthlyDelta)}
                     </Text>
                     <Text style={styles.historyImpactLabel}>monthly</Text>
                     <Text style={styles.historyAnnual}>
-                      {formatLedgerDelta(edit.projectionAnnualDelta, edit.after.ledgerId)} yearly
+                      {formatReportingDelta(annualDelta)} yearly
                     </Text>
                   </View>
                 </View>

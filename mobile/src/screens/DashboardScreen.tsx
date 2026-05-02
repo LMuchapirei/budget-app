@@ -6,25 +6,29 @@ import {
   StyleSheet,
   useWindowDimensions,
   Modal,
-  TextInput,
-  KeyboardAvoidingView,
-  Platform,
   ScrollView,
 } from 'react-native';
-import { CreditCard, Plus, TrendingUp, TrendingDown, Wallet, X } from 'lucide-react-native';
+import {
+  Archive,
+  CreditCard,
+  Pencil,
+  Plus,
+  TrendingUp,
+  TrendingDown,
+  Wallet,
+  X,
+} from 'lucide-react-native';
 import { useTheme } from '../context/ThemeContext';
 import { ALL_LEDGER_ID, useBudget } from '../context/BudgetContext';
 import { AreaChart } from '../charts/AreaChart';
 import { StatCard } from '../components/ui/StatCard';
 import { Section, Empty, Legend } from '../components/ui/Layout';
 import { TxRow } from '../components/ui/TxRow';
-import type { Transaction, TxType, FxRateStatus } from '../types';
+import { LedgerSheet } from '../components/forms/LedgerSheet';
+import type { LedgerAccount, Transaction, TxType, FxRateStatus } from '../types';
 import { fonts } from '../theme';
-import { REPORTING_CURRENCY_OPTIONS } from '../utils/currency';
 
 type EntryTab = 'all' | TxType;
-
-type CurrencyOption = typeof REPORTING_CURRENCY_OPTIONS[number];
 
 interface DashboardScreenProps {
   onEditTransaction: (t: Transaction) => void;
@@ -75,10 +79,10 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
   const {
     scopedTransactions,
     ledgers,
+    activeLedgers,
     activeLedgerId,
     activeLedger,
     setActiveLedger,
-    addLedger,
     stats,
     customCategories,
     dateFilter,
@@ -88,6 +92,7 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
     fxError,
     formatActiveMoney,
     formatCompactMoney,
+    convertAmountToReporting,
     convertTransactionAmountToReporting,
     getTransactionAmountForActiveView,
     maskAccountNumber,
@@ -96,7 +101,15 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
 
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [entryTab, setEntryTab] = useState<EntryTab>('all');
-  const [showLedgerForm, setShowLedgerForm] = useState(false);
+  const [ledgerSheet, setLedgerSheet] = useState<
+    { mode: 'add' } | { mode: 'edit'; ledger: LedgerAccount } | null
+  >(null);
+  const [showArchivedSheet, setShowArchivedSheet] = useState(false);
+
+  const archivedLedgers = useMemo(
+    () => ledgers.filter((l) => l.archived),
+    [ledgers],
+  );
 
   // Transactions filtered to the active date range
   const monthlyTxs = useMemo(() => {
@@ -178,13 +191,36 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
       { income: 0, expenses: 0 },
     );
 
+    let openingTotal = 0;
+    if (activeLedgerId === ALL_LEDGER_ID) {
+      activeLedgers.forEach((l) => {
+        const opening = Number(l.openingBalance ?? 0);
+        if (!opening) return;
+        const conv = convertAmountToReporting(opening, l.currencyCode);
+        if (!conv.converted && conv.missingCurrencyCode) {
+          missing.add(conv.missingCurrencyCode);
+        }
+        openingTotal += conv.amount;
+      });
+    } else if (activeLedger) {
+      openingTotal = Number(activeLedger.openingBalance ?? 0);
+    }
+
     return {
       income: totals.income,
       expenses: totals.expenses,
-      balance: totals.income - totals.expenses,
+      balance: openingTotal + totals.income - totals.expenses,
+      openingBalance: openingTotal,
       missingCurrencyCodes: Array.from(missing),
     };
-  }, [activeLedgerId, convertTransactionAmountToReporting, scopedTransactions]);
+  }, [
+    activeLedger,
+    activeLedgerId,
+    activeLedgers,
+    convertAmountToReporting,
+    convertTransactionAmountToReporting,
+    scopedTransactions,
+  ]);
 
   const chartW = width - 24 * 2 - 16 * 2;
   const formatLedgerMoney = formatActiveMoney;
@@ -224,9 +260,20 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
               <Text style={styles.ledgerAccountMeta}>{allAccountsMeta}</Text>
             )}
           </View>
-          <View style={styles.ledgerIcon}>
-            <CreditCard size={20} color={colors.rust} />
-          </View>
+          {activeLedger ? (
+            <Pressable
+              onPress={() => setLedgerSheet({ mode: 'edit', ledger: activeLedger })}
+              style={styles.ledgerIcon}
+              hitSlop={6}
+              accessibilityLabel="Edit account"
+            >
+              <Pencil size={18} color={colors.rust} />
+            </Pressable>
+          ) : (
+            <View style={styles.ledgerIcon}>
+              <CreditCard size={20} color={colors.rust} />
+            </View>
+          )}
         </View>
 
         <View style={styles.ledgerBalanceRow}>
@@ -268,22 +315,34 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
             active={activeLedgerId === ALL_LEDGER_ID}
             onPress={() => setActiveLedger(ALL_LEDGER_ID)}
           />
-          {ledgers.map((ledger) => (
+          {activeLedgers.map((ledger) => (
             <LedgerChip
               key={ledger.id}
               label={ledger.name}
               active={activeLedgerId === ledger.id}
               color={ledger.color}
               onPress={() => setActiveLedger(ledger.id)}
+              onLongPress={() => setLedgerSheet({ mode: 'edit', ledger })}
             />
           ))}
           <Pressable
-            onPress={() => setShowLedgerForm(true)}
+            onPress={() => setLedgerSheet({ mode: 'add' })}
             style={styles.addLedgerChip}
           >
             <Plus size={14} color={colors.rust} />
             <Text style={styles.addLedgerLabel}>Account</Text>
           </Pressable>
+          {archivedLedgers.length > 0 ? (
+            <Pressable
+              onPress={() => setShowArchivedSheet(true)}
+              style={styles.archivedChip}
+            >
+              <Archive size={13} color={colors.stone500} />
+              <Text style={styles.archivedChipLabel}>
+                {archivedLedgers.length} archived
+              </Text>
+            </Pressable>
+          ) : null}
         </ScrollView>
       </View>
 
@@ -396,22 +455,83 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
         )}
       </Section>
 
-      <AddLedgerSheet
-        visible={showLedgerForm}
-        onClose={() => setShowLedgerForm(false)}
-        onSave={(name, description, currencyCode, currencySymbol, accountNumber) => {
-          addLedger({
-            name,
-            description,
-            currencyCode,
-            currencySymbol,
-            accountNumber,
-            color: colors.rust,
-          });
-          setShowLedgerForm(false);
+      <LedgerSheet
+        visible={ledgerSheet !== null}
+        mode={ledgerSheet?.mode ?? 'add'}
+        ledger={ledgerSheet?.mode === 'edit' ? ledgerSheet.ledger : null}
+        onClose={() => setLedgerSheet(null)}
+      />
+
+      <ArchivedLedgersSheet
+        visible={showArchivedSheet}
+        ledgers={archivedLedgers}
+        onClose={() => setShowArchivedSheet(false)}
+        onPick={(ledger) => {
+          setShowArchivedSheet(false);
+          setLedgerSheet({ mode: 'edit', ledger });
         }}
       />
     </View>
+  );
+}
+
+function ArchivedLedgersSheet({
+  visible,
+  ledgers,
+  onClose,
+  onPick,
+}: {
+  visible: boolean;
+  ledgers: LedgerAccount[];
+  onClose: () => void;
+  onPick: (ledger: LedgerAccount) => void;
+}) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.modalRoot}>
+        <Pressable style={styles.modalBackdrop} onPress={onClose} />
+        <View style={styles.sheet}>
+          <View style={styles.sheetHandle} />
+          <View style={styles.sheetHead}>
+            <Text style={styles.sheetTitle}>Archived accounts</Text>
+            <Pressable onPress={onClose} hitSlop={8}>
+              <X size={20} color={colors.stone500} />
+            </Pressable>
+          </View>
+          {ledgers.length === 0 ? (
+            <Text style={styles.archivedEmpty}>No archived accounts.</Text>
+          ) : (
+            <View style={{ gap: 10 }}>
+              {ledgers.map((ledger) => (
+                <Pressable
+                  key={ledger.id}
+                  onPress={() => onPick(ledger)}
+                  style={styles.archivedRow}
+                >
+                  <View
+                    style={[
+                      styles.ledgerChipDot,
+                      { backgroundColor: ledger.color || colors.rust },
+                    ]}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.archivedRowName}>{ledger.name}</Text>
+                    <Text style={styles.archivedRowMeta}>
+                      {ledger.currencyCode}
+                      {ledger.description ? ` - ${ledger.description}` : ''}
+                    </Text>
+                  </View>
+                  <Pencil size={14} color={colors.stone500} />
+                </Pressable>
+              ))}
+            </View>
+          )}
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -420,11 +540,13 @@ function LedgerChip({
   active,
   color,
   onPress,
+  onLongPress,
 }: {
   label: string;
   active: boolean;
   color?: string;
   onPress: () => void;
+  onLongPress?: () => void;
 }) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -432,6 +554,8 @@ function LedgerChip({
   return (
     <Pressable
       onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={350}
       style={[styles.ledgerChip, active && { backgroundColor: colors.ink }]}
     >
       <View
@@ -444,144 +568,6 @@ function LedgerChip({
         {label}
       </Text>
     </Pressable>
-  );
-}
-
-function AddLedgerSheet({
-  visible,
-  onClose,
-  onSave,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  onSave: (
-    name: string,
-    description: string,
-    currencyCode: string,
-    currencySymbol: string,
-    accountNumber?: string,
-  ) => void;
-}) {
-  const { colors } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [accountNumber, setAccountNumber] = useState('');
-  const [selectedCurrency, setSelectedCurrency] =
-    useState<CurrencyOption>(REPORTING_CURRENCY_OPTIONS[0]);
-
-  const handleSave = () => {
-    if (!name.trim()) return;
-    onSave(
-      name.trim(),
-      description.trim(),
-      selectedCurrency.code,
-      selectedCurrency.symbol,
-      accountNumber.trim() || undefined,
-    );
-    setName('');
-    setDescription('');
-    setAccountNumber('');
-    setSelectedCurrency(REPORTING_CURRENCY_OPTIONS[0]);
-  };
-
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.modalRoot}
-      >
-        <Pressable style={styles.modalBackdrop} onPress={onClose} />
-        <View style={styles.sheet}>
-          <View style={styles.sheetHandle} />
-          <View style={styles.sheetHead}>
-            <Text style={styles.sheetTitle}>New account</Text>
-            <Pressable onPress={onClose} hitSlop={8}>
-              <X size={20} color={colors.stone500} />
-            </Pressable>
-          </View>
-
-          <View style={{ gap: 16 }}>
-            <View style={{ gap: 6 }}>
-              <Text style={styles.fieldLabel}>Account name</Text>
-              <TextInput
-                value={name}
-                onChangeText={setName}
-                placeholder="e.g. FBC Staff Account"
-                placeholderTextColor={colors.stone400}
-                style={styles.input}
-              />
-            </View>
-            <View style={{ gap: 6 }}>
-              <Text style={styles.fieldLabel}>Description</Text>
-              <TextInput
-                value={description}
-                onChangeText={setDescription}
-                placeholder="Optional note"
-                placeholderTextColor={colors.stone400}
-                style={styles.input}
-              />
-            </View>
-            <View style={{ gap: 8 }}>
-              <Text style={styles.fieldLabel}>Currency</Text>
-              <View style={styles.currencyGrid}>
-                {REPORTING_CURRENCY_OPTIONS.map((option) => {
-                  const active =
-                    selectedCurrency.code === option.code &&
-                    selectedCurrency.symbol === option.symbol;
-                  return (
-                    <Pressable
-                      key={`${option.code}-${option.symbol}`}
-                      onPress={() => setSelectedCurrency(option)}
-                      style={[
-                        styles.currencyOption,
-                        active && { backgroundColor: colors.ink },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.currencySymbol,
-                          active && { color: colors.paper },
-                        ]}
-                      >
-                        {option.symbol}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.currencyCode,
-                          active && { color: colors.paper },
-                        ]}
-                      >
-                        {option.code}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </View>
-            <View style={{ gap: 6 }}>
-              <Text style={styles.fieldLabel}>Account number</Text>
-              <TextInput
-                value={accountNumber}
-                onChangeText={setAccountNumber}
-                placeholder="Optional"
-                placeholderTextColor={colors.stone400}
-                keyboardType="number-pad"
-                style={styles.input}
-              />
-            </View>
-          </View>
-
-          <Pressable
-            onPress={handleSave}
-            disabled={!name.trim()}
-            style={[styles.submit, !name.trim() && { opacity: 0.4 }]}
-          >
-            <Text style={styles.submitLabel}>Create account</Text>
-          </Pressable>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
   );
 }
 
@@ -696,6 +682,49 @@ const createStyles = (colors: any) =>
       fontSize: 12,
       color: colors.rust,
     },
+    archivedChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: 999,
+      backgroundColor: colors.chip,
+    },
+    archivedChipLabel: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: 12,
+      color: colors.stone500,
+    },
+    archivedRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 14,
+      borderRadius: 14,
+      backgroundColor: colors.paper,
+      borderWidth: 1,
+      borderColor: colors.borderSoft,
+    },
+    archivedRowName: {
+      fontFamily: fonts.displayLight,
+      fontSize: 16,
+      color: colors.ink,
+    },
+    archivedRowMeta: {
+      fontFamily: fonts.body,
+      fontSize: 11,
+      color: colors.stone500,
+      marginTop: 2,
+    },
+    archivedEmpty: {
+      fontFamily: fonts.body,
+      fontSize: 13,
+      color: colors.stone500,
+      textAlign: 'center',
+      paddingVertical: 16,
+    },
     card: {
       backgroundColor: colors.cream,
       borderRadius: 20,
@@ -763,57 +792,5 @@ const createStyles = (colors: any) =>
       fontFamily: fonts.displayLight,
       fontSize: 22,
       color: colors.ink,
-    },
-    fieldLabel: {
-      fontFamily: fonts.bodyMedium,
-      fontSize: 10,
-      letterSpacing: 1.5,
-      textTransform: 'uppercase',
-      color: colors.stone500,
-    },
-    input: {
-      fontFamily: fonts.body,
-      fontSize: 15,
-      paddingVertical: 8,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.borderSoft,
-      color: colors.ink,
-    },
-    currencyGrid: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 8,
-    },
-    currencyOption: {
-      minWidth: 70,
-      paddingHorizontal: 10,
-      paddingVertical: 9,
-      borderRadius: 12,
-      backgroundColor: colors.chip,
-      borderWidth: 1,
-      borderColor: colors.borderSoft,
-      gap: 2,
-    },
-    currencySymbol: {
-      fontFamily: fonts.display,
-      fontSize: 15,
-      color: colors.ink,
-    },
-    currencyCode: {
-      fontFamily: fonts.bodyMedium,
-      fontSize: 10,
-      letterSpacing: 0.8,
-      color: colors.stone500,
-    },
-    submit: {
-      backgroundColor: colors.ink,
-      paddingVertical: 14,
-      borderRadius: 999,
-      alignItems: 'center',
-    },
-    submitLabel: {
-      fontFamily: fonts.bodyMedium,
-      fontSize: 14,
-      color: colors.paper,
     },
   });
