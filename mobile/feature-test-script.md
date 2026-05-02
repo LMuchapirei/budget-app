@@ -16,8 +16,8 @@ This document is the living test script for feature work in the mobile budget ap
 | Monthly category budgets | In progress | Dashboard, Reports, reporting currency | Wave 2 #1 |
 | Savings goals | In progress | Dashboard, linked ledger balance, goal status | Wave 2 #2 |
 | Date picker UX | In progress | Transaction form, recurring schedules, goal deadlines | Shared calendar picker |
-| Bills & subscriptions tracker | In progress | Bills tab, paid/missed status, local reminders | Wave 2 #3 |
-| Recurring engine controls | Not started | TBD | More to follow |
+| Bills & subscriptions tracker | In progress | Bills tab, confirmations, skips, local reminders | Wave 2 #3 |
+| Recurring engine controls | In progress | Confirm inbox, skip, postpone, pause/resume, auto-post | Wave 2 #4 |
 
 ## Monthly Category Budgets
 
@@ -309,7 +309,7 @@ Expected result:
 
 ### What This Feature Does
 
-Recurring expense transactions are surfaced as bill commitments in a dedicated `Bills` tab. Each generated due date can be marked paid or missed without changing the source transaction. Local reminders use the recurring schedule's `reminderDaysBefore` value.
+Recurring income and expense transactions are surfaced as scheduled commitments in a dedicated `Bills` tab. Each due date can be confirmed into a real transaction, skipped, or postponed. Local reminders use the recurring schedule's `reminderDaysBefore` value.
 
 ### Setup
 
@@ -320,65 +320,126 @@ Recurring expense transactions are surfaced as bill commitments in a dedicated `
 5. Pick a first due date, frequency, and reminder days.
 6. Save the transaction.
 
-### Test Case 1: Bill Appears In Bills Tab
+### Test Case 1: Schedule Appears In Bills Tab
 
 1. Go to `Bills`.
-2. Open `Due soon` and `Upcoming`.
+2. Open `Due` and `Upcoming`.
 
 Expected result:
 
-- The recurring expense appears as a commitment.
+- The recurring schedule appears as a commitment.
 - The card shows due date, category, account, frequency, amount in reporting currency, and status.
-- Income recurring transactions do not appear as bills.
+- Income schedules appear too, with income-colored amounts.
 
-### Test Case 2: Paid And Undo
+### Test Case 2: Confirm With Default Values
 
-1. Tap `Paid` on a bill card.
-2. Switch to the `Paid` filter.
-3. Tap `Undo`.
-
-Expected result:
-
-- The bill moves into the paid filter after marking paid.
-- Undo clears the manual status and returns the occurrence to its derived status.
-
-### Test Case 3: Missed Status
-
-1. Use a bill due today or overdue.
-2. Tap `Missed`.
-3. Switch to the `Missed` filter.
+1. Tap `Confirm` on a pending occurrence.
+2. Leave the amount, date, account, and category unchanged.
+3. Tap `Post transaction`.
 
 Expected result:
 
-- The bill appears in the missed filter.
-- Overdue bills without a manual status are also treated as missed.
-- Undo clears the manual missed status.
+- A real transaction appears in the Dashboard.
+- The occurrence moves into the `Confirmed` filter.
+- Stats, budgets, and reports reflect the newly posted transaction.
 
-### Test Case 4: Local Reminder Permission And Sync
+### Test Case 3: Confirm With Edited Amount Or Date
+
+1. Tap `Confirm` on a pending occurrence.
+2. Change the amount or post date in the confirm sheet.
+3. Tap `Post transaction`.
+
+Expected result:
+
+- The created transaction uses the edited amount/date.
+- The source recurring schedule remains unchanged.
+
+### Test Case 4: Skip And Undo
+
+1. Tap `Skip` on a pending occurrence.
+2. Confirm the alert.
+3. Switch to the `Skipped` filter.
+4. Tap `Undo`.
+
+Expected result:
+
+- The occurrence moves to `Skipped`.
+- It does not create a transaction.
+- Undo returns it to the derived pending/upcoming status.
+
+### Test Case 5: Postpone
+
+1. Tap `Postpone` on a pending occurrence.
+2. Pick a future date.
+
+Expected result:
+
+- The occurrence shows the new effective date.
+- The occurrence appears in the `Postponed` filter.
+- Projections use the postponed date.
+
+### Test Case 6: Local Reminder Permission And Sync
 
 1. Go to `Bills`.
 2. Tap `Enable` on the reminders card.
 3. Approve notification permission on the device.
-4. Tap `Sync` after adding or editing another recurring bill.
+4. Tap `Sync` after adding or editing another recurring schedule.
 
 Expected result:
 
 - Permission status changes to enabled.
-- Upcoming open bill reminders are scheduled using `reminderDaysBefore`.
-- Paid or missed bills are skipped and their scheduled reminders are cancelled.
+- Upcoming open schedule reminders are scheduled using `reminderDaysBefore`.
+- Confirmed or skipped occurrences are skipped and their scheduled reminders are cancelled.
 
 ### Trial Log
 
 | Date | Tester | Build/Branch | Scenario | Result | Follow-Up |
 | --- | --- | --- | --- | --- | --- |
 | 2026-05-02 | Codex | Working tree | Bills tracker implementation smoke test | `tsc --noEmit` passed | Manual device notification pass still needed |
+| 2026-05-02 | Codex | Working tree | Unified recurring controls smoke test | `tsc --noEmit` passed | Manual app/device pass still needed |
 
 ### Evolution Notes
 
-- V1 derives bills from recurring expense transactions.
-- Occurrence statuses are stored separately from transactions.
-- Marking paid or missed does not yet post, skip, or postpone generated recurring entries.
+- V1 now derives scheduled commitments from recurring income and expense transactions.
+- Occurrence statuses are stored separately from transactions in `scheduled-occurrences:v2`.
+- Confirm posts a real transaction; skip/postpone stay in the schedule layer.
 - Local notification reminders are wired through `expo-notifications`.
+
+## Recurring Engine Controls
+
+### What This Feature Does
+
+Recurring schedules no longer silently materialize every past-due occurrence. The app derives pending occurrences, lets the user confirm/skip/postpone them, supports pause/resume on the source schedule, and still supports auto-post for schedules where the user explicitly wants it.
+
+### Setup
+
+1. Open the app.
+2. Create a recurring expense with `Auto-post without confirming` turned off.
+3. Create a recurring income with `Auto-post without confirming` turned on.
+4. Optional: enable `Schedule reminders` in Settings.
+
+### Test Cases
+
+1. Confirm a pending expense and verify a Dashboard transaction is created.
+2. Skip an occurrence and verify Projections no longer count it.
+3. Postpone an occurrence and verify Projections use the new date.
+4. Edit a recurring schedule and change its frequency; pending records should refresh while confirmed/skipped decisions remain.
+5. Pause a schedule from the edit sheet; future pending occurrences disappear.
+6. Resume the schedule; it restarts from today without backfilling the pause gap.
+7. Restart the app twice and verify no duplicate generated transactions or duplicate records appear.
+
+### Trial Log
+
+| Date | Tester | Build/Branch | Scenario | Result | Follow-Up |
+| --- | --- | --- | --- | --- | --- |
+| 2026-05-02 | Codex | Working tree | Recurring engine controls implementation smoke test | `tsc --noEmit` passed | Manual app/device pass still needed |
+
+### Evolution Notes
+
+- Expense schedules default to confirm-before-post.
+- Income schedules default to auto-post.
+- Users can override the auto-post mode per schedule.
+- Source schedule pause/resume lives in the transaction edit sheet.
 
 ## Upcoming Feature Test Sections
 

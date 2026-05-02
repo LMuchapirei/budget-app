@@ -1,4 +1,11 @@
-import type { RecurringFrequency, RecurringSchedule, Transaction } from '../types';
+import type {
+  RecurringFrequency,
+  RecurringSchedule,
+  ScheduledOccurrence,
+  ScheduledOccurrenceDisplayStatus,
+  ScheduledOccurrenceRecord,
+  Transaction,
+} from '../types';
 
 export interface RecurringOccurrence {
   source: Transaction;
@@ -58,6 +65,9 @@ export function normalizeRecurringSchedule(transaction: Transaction): RecurringS
     startDate: schedule?.startDate || transaction.date,
     endDate: schedule?.endDate || undefined,
     reminderDaysBefore: Math.max(0, Number(schedule?.reminderDaysBefore ?? 0)),
+    postMode: schedule?.postMode ?? (transaction.type === 'income' ? 'auto' : 'confirm'),
+    paused: Boolean(schedule?.paused),
+    pausedAt: schedule?.pausedAt,
   };
 }
 
@@ -133,38 +143,207 @@ export function generateRecurringOccurrences(
   return occurrences;
 }
 
-export function materializeRecurringTransactions(transactions: Transaction[], today = new Date()) {
-  const todayIso = formatISODate(today);
-  const existingGenerated = new Set(
+export interface DerivedScheduledOccurrences {
+  occurrences: ScheduledOccurrence[];
+  autoConfirmTransactions: Transaction[];
+  recordsToPersist: ScheduledOccurrenceRecord[];
+}
+
+function scheduledOccurrenceId(sourceTransactionId: string, originalDueDate: string) {
+  return `${sourceTransactionId}:${originalDueDate}`;
+}
+
+function displayStatusFor(
+  status: ScheduledOccurrenceRecord['status'] | undefined,
+  effectiveDueDate: string,
+  todayIso: string,
+): ScheduledOccurrenceDisplayStatus {
+  if (status === 'confirmed') return 'confirmed';
+  if (status === 'skipped') return 'skipped';
+  if (status === 'postponed') return 'postponed';
+  if (effectiveDueDate < todayIso) return 'due-now';
+  if (effectiveDueDate === todayIso) return 'due-today';
+  return 'upcoming';
+}
+
+export function deriveScheduledOccurrences(
+  transactions: Transaction[],
+  records: ScheduledOccurrenceRecord[],
+  today = new Date(),
+  window: { pastDays?: number; futureDays?: number } = {},
+): DerivedScheduledOccurrences {
+  const normalizedToday = new Date(today);
+  normalizedToday.setHours(0, 0, 0, 0);
+  const todayIso = formatISODate(normalizedToday);
+  const rangeStart = new Date(normalizedToday);
+  rangeStart.setDate(rangeStart.getDate() - (window.pastDays ?? 30));
+  const rangeEnd = new Date(normalizedToday);
+  rangeEnd.setDate(rangeEnd.getDate() + (window.futureDays ?? 90));
+
+  const recordMap = new Map(records.map((record) => [record.id, record]));
+  const generatedMap = new Map(
     transactions
       .filter((transaction) => transaction.generatedFromRecurringId && transaction.generatedOccurrenceDate)
-      .map((transaction) => `${transaction.generatedFromRecurringId}:${transaction.generatedOccurrenceDate}`),
+      .map((transaction) => [
+        scheduledOccurrenceId(transaction.generatedFromRecurringId!, transaction.generatedOccurrenceDate!),
+        transaction,
+      ]),
   );
-  const additions: Transaction[] = [];
+  const occurrences: ScheduledOccurrence[] = [];
+  const autoConfirmTransactions: Transaction[] = [];
+  const recordsToPersist: ScheduledOccurrenceRecord[] = [...records];
+  const nextRecordIds = new Set(records.map((record) => record.id));
 
   transactions
     .filter((transaction) => transaction.recurring && !transaction.generatedFromRecurringId)
     .forEach((source) => {
-      const sourceDate = parseISODate(source.date);
-      const occurrences = generateRecurringOccurrences(source, source.date, todayIso);
-      occurrences.forEach((occurrence) => {
-        const occurrenceDate = parseISODate(occurrence.dueDate);
-        const key = `${source.id}:${occurrence.dueDate}`;
-        if (occurrenceDate <= sourceDate || existingGenerated.has(key)) return;
-        existingGenerated.add(key);
-        additions.push({
-          ...source,
-          id: `${source.id}-${occurrence.dueDate}`,
-          date: occurrence.dueDate,
-          recurring: false,
-          recurringSchedule: undefined,
-          generatedFromRecurringId: source.id,
-          generatedOccurrenceDate: occurrence.dueDate,
+      const schedule = normalizeRecurringSchedule(source);
+      if (!schedule || schedule.paused) return;
+
+      generateRecurringOccurrences(
+        source,
+        formatISODate(rangeStart),
+        formatISODate(rangeEnd),
+      ).forEach((occurrence) => {
+        if (occurrence.dueDate < source.date) return;
+
+        const id = scheduledOccurrenceId(source.id, occurrence.dueDate);
+        const record = recordMap.get(id);
+        const generated = generatedMap.get(id);
+
+        if (record?.status === 'skipped') {
+          occurrences.push({
+            id,
+            source,
+            originalDueDate: record.originalDueDate,
+            effectiveDueDate: record.effectiveDueDate,
+            dueDate: record.effectiveDueDate,
+            amount: occurrence.amount,
+            type: occurrence.type,
+            status: 'skipped',
+            recordStatus: 'skipped',
+            daysUntilDue: dayDifference(normalizedToday, parseISODate(record.effectiveDueDate)),
+            reminderDaysBefore: schedule.reminderDaysBefore ?? 0,
+            currencyCode: '',
+            currencySymbol: '',
+            notificationId: record.notificationId,
+          });
+          return;
+        }
+
+        if (!record && generated) {
+          const generatedRecord: ScheduledOccurrenceRecord = {
+            id,
+            sourceTransactionId: source.id,
+            originalDueDate: occurrence.dueDate,
+            effectiveDueDate: occurrence.dueDate,
+            status: 'confirmed',
+            confirmedTransactionId: generated.id,
+            markedAt: new Date().toISOString(),
+          };
+          if (!nextRecordIds.has(id)) {
+            recordsToPersist.push(generatedRecord);
+            nextRecordIds.add(id);
+          }
+          occurrences.push({
+            id,
+            source,
+            originalDueDate: occurrence.dueDate,
+            effectiveDueDate: occurrence.dueDate,
+            dueDate: occurrence.dueDate,
+            amount: occurrence.amount,
+            type: occurrence.type,
+            status: 'confirmed',
+            recordStatus: 'confirmed',
+            daysUntilDue: dayDifference(normalizedToday, parseISODate(occurrence.dueDate)),
+            reminderDaysBefore: schedule.reminderDaysBefore ?? 0,
+            currencyCode: '',
+            currencySymbol: '',
+            confirmedTransactionId: generated.id,
+          });
+          return;
+        }
+
+        if (!record && schedule.postMode === 'auto' && occurrence.dueDate <= todayIso) {
+          const child: Transaction = {
+            ...source,
+            id: `${source.id}-${occurrence.dueDate}`,
+            date: occurrence.dueDate,
+            recurring: false,
+            recurringSchedule: undefined,
+            generatedFromRecurringId: source.id,
+            generatedOccurrenceDate: occurrence.dueDate,
+          };
+          const generatedRecord: ScheduledOccurrenceRecord = {
+            id,
+            sourceTransactionId: source.id,
+            originalDueDate: occurrence.dueDate,
+            effectiveDueDate: occurrence.dueDate,
+            status: 'confirmed',
+            confirmedTransactionId: child.id,
+            markedAt: new Date().toISOString(),
+          };
+          autoConfirmTransactions.push(child);
+          if (!nextRecordIds.has(id)) {
+            recordsToPersist.push(generatedRecord);
+            nextRecordIds.add(id);
+          }
+          occurrences.push({
+            id,
+            source,
+            originalDueDate: occurrence.dueDate,
+            effectiveDueDate: occurrence.dueDate,
+            dueDate: occurrence.dueDate,
+            amount: occurrence.amount,
+            type: occurrence.type,
+            status: 'confirmed',
+            recordStatus: 'confirmed',
+            daysUntilDue: dayDifference(normalizedToday, parseISODate(occurrence.dueDate)),
+            reminderDaysBefore: schedule.reminderDaysBefore ?? 0,
+            currencyCode: '',
+            currencySymbol: '',
+            confirmedTransactionId: child.id,
+          });
+          return;
+        }
+
+        const effectiveDueDate = record?.effectiveDueDate ?? occurrence.dueDate;
+        const recordStatus = record?.status;
+        const status = displayStatusFor(recordStatus, effectiveDueDate, todayIso);
+
+        occurrences.push({
+          id,
+          source,
+          originalDueDate: record?.originalDueDate ?? occurrence.dueDate,
+          effectiveDueDate,
+          dueDate: effectiveDueDate,
+          amount: occurrence.amount,
+          type: occurrence.type,
+          status,
+          recordStatus,
+          daysUntilDue: dayDifference(normalizedToday, parseISODate(effectiveDueDate)),
+          reminderDaysBefore: schedule.reminderDaysBefore ?? 0,
+          currencyCode: '',
+          currencySymbol: '',
+          notificationId: record?.notificationId,
+          confirmedTransactionId: record?.confirmedTransactionId,
         });
       });
     });
 
-  return additions.length > 0 ? [...additions, ...transactions] : transactions;
+  return {
+    occurrences: occurrences.sort((a, b) => a.dueDate.localeCompare(b.dueDate)),
+    autoConfirmTransactions,
+    recordsToPersist,
+  };
+}
+
+function dayDifference(start: Date, end: Date) {
+  const nextStart = new Date(start);
+  const nextEnd = new Date(end);
+  nextStart.setHours(0, 0, 0, 0);
+  nextEnd.setHours(0, 0, 0, 0);
+  return Math.ceil((nextEnd.getTime() - nextStart.getTime()) / 86400000);
 }
 
 export function estimateMonthlyImpact(transaction: Transaction) {

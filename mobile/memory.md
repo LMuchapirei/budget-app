@@ -18,7 +18,7 @@ Last updated: 2026-05-02
 - Reports tab with spending by category and monthly comparison.
 - Projections tab based on recurring schedules.
 - Recurring schedule engine for daily, weekly, monthly, and yearly schedules.
-- Dashboard monthly budgets, linked-ledger savings goals, and a Bills tab for recurring expense commitments.
+- Dashboard monthly budgets, linked-ledger savings goals, and a Bills tab for recurring income/expense commitments.
 - Settings tab with theme, app lock, currency symbol, and clear data.
 
 ## Transaction Features
@@ -32,7 +32,7 @@ Last updated: 2026-05-02
   - recurring flag and recurring schedule
   - linked ledger/account via `ledgerId`
 - Transactions can be added and edited.
-- Recurring expense transactions appear as bill/subscription commitments in the Bills tab.
+- Recurring transactions appear as scheduled commitments in the Bills tab before posting unless auto-post is enabled.
 - Editing writes a `TransactionEditHistory` record with:
   - before transaction
   - after transaction
@@ -87,7 +87,8 @@ Last updated: 2026-05-02
 - `src/services/storage.ts`: AsyncStorage persistence.
 - `src/types/index.ts`: data models.
 - `src/screens/DashboardScreen.tsx`: Ledger tab UI, account selector, add account sheet, cash flow, recent entries.
-- `src/screens/BillsScreen.tsx`: bills/subscriptions tracker with upcoming, paid, and missed occurrence views.
+- `src/screens/BillsScreen.tsx`: scheduled commitments tracker with due, upcoming, confirmed, skipped, and postponed views.
+- `src/components/forms/ConfirmOccurrenceSheet.tsx`: confirm-before-post sheet for recurring occurrence amount/date/account overrides.
 - `src/components/forms/TransactionForm.tsx`: add/edit transaction sheet.
 - `src/components/forms/DatePickerSheet.tsx`: reusable calendar picker for single date fields.
 - `src/components/forms/LedgerSheet.tsx`: add/edit account sheet with archive, set-default, and delete-with-reassignment.
@@ -96,7 +97,8 @@ Last updated: 2026-05-02
 - `src/components/ui/TxRow.tsx`: transaction row gestures, detail sheet, audit trail.
 - `src/charts/AreaChart.tsx`: cash flow chart rendering.
 - `src/utils/recurring.ts`: recurring schedule engine, occurrence generation, due dates, monthly impact estimates.
-- `src/services/billNotifications.ts`: local bill reminder permission, scheduling, and cancellation through Expo Notifications.
+- `src/services/scheduledNotifications.ts`: local schedule reminder permission, scheduling, and cancellation through Expo Notifications.
+- `src/services/billNotifications.ts`: deprecated aliases for the older bill reminder function names.
 
 ## Known Follow-Ups
 
@@ -137,15 +139,38 @@ Last updated: 2026-05-02
   - Transactions can be marked as recurring.
   - Recurring schedules support daily, weekly, monthly, and yearly frequencies.
   - Schedules support interval, first due date, optional end date, and reminder lead days.
-  - The engine materializes due recurring entries locally when the app loads or a recurring transaction is saved.
-  - Projections read generated future occurrences for the next 12 months.
-  - Reminder lead days are used by the Bills tab for local notification scheduling.
+  - Expense schedules default to confirm-before-post; income schedules default to auto-post.
+  - Users can override auto-post per recurring schedule.
+  - Due occurrences are derived into a scheduled occurrence inbox instead of silently materializing.
+  - Confirming an occurrence posts a real transaction with `generatedFromRecurringId` and `generatedOccurrenceDate`.
+  - Users can skip or postpone a single occurrence.
+  - Source schedules can be paused/resumed from the transaction edit sheet; resume starts from today without backfill.
+  - Projections read scheduled occurrences so skipped, postponed, and paused schedules are reflected.
+  - Reminder lead days are used for local notification scheduling across recurring income and expenses.
 - Bills and subscriptions:
-  - The Bills tab derives commitments from recurring expense transactions.
-  - Bills show due soon, upcoming, paid, and missed filters.
-  - Each occurrence can be marked paid or missed, with undo.
+  - The Bills tab derives commitments from recurring income and expense transactions.
+  - Bills show due, upcoming, confirmed, skipped, and postponed filters.
+  - Each occurrence can be confirmed, skipped, postponed, or undone when applicable.
   - Local reminders use `expo-notifications` and the recurring schedule's reminder lead days.
-  - Occurrence status is stored separately from transactions so Wave 2 recurring controls can expand it later.
+  - Occurrence status is stored separately from transactions in `budget:scheduled-occurrences:v2`.
+  - `app.json` registers the `expo-notifications` plugin so EAS / dev builds get correct iOS prompts and Android channels.
+  - Notifications and scheduled records are pruned when the source recurring transaction is deleted, has pending schedule records refreshed, or when `clearAllData` runs.
+  - Schedule notifications auto-sync once on app load when permission is already granted.
+  - Settings has a top-level Schedule reminders row with toggle, "Sync now", and an Open device settings shortcut when blocked.
+
+- Theme customization:
+  - Six theme presets ship: Warm Cream (default), Slate, Forest, Marine, Plum, Carbon - each with light and dark palettes.
+  - Appearance mode is tri-state: Light, Dark, or Auto (follows system).
+  - Accent color override replaces the preset's accent (used for FAB, primary buttons, focus highlights). "Auto" restores the preset default.
+  - Preferences persist under `budget:theme:v2` with migration from the legacy `budget:theme:v1` light/dark string.
+  - All UI consumes tokens via `useTheme().colors`, so presets/accent flow everywhere with no per-component changes.
+
+- Font customization:
+  - Four bundled Google Font pairs ship: Fraunces / Inter (default), Jost (all sans), Playfair / Inter, DM Serif / DM Sans.
+  - Font selection lives in Settings under the Theme card with a live preview row per pair.
+  - The `fonts` object in `theme.ts` is mutated in place by `setActiveFontPair`; `ThemeContext` bumps a `_fontPair` field on the colors object so every `useMemo([colors])` recomputes and picks up the new font without an app restart.
+  - All fonts are bundled at build time. Runtime download from Google Fonts is intentionally not implemented yet.
+  - The previous circular import between `theme.ts` and `ThemeContext.tsx` is removed; `theme.ts` no longer depends on `lightColors`.
 - Transaction audit trail:
   - Edits are recorded with before/after data and projection impact.
   - Audit trail is shown in transaction details and projections.
@@ -158,6 +183,7 @@ Last updated: 2026-05-02
 - Transaction form:
   - Supports add/edit, account selection, category selection, calendar date picking, and recurring schedule setup.
   - Entry dates and recurring first/end dates use the shared calendar picker.
+  - Recurring setup includes an auto-post toggle and pause/resume action in edit mode.
   - Amount parsing is basic and does not handle commas, symbols, or locale-specific formats.
 - Categories:
   - Built-in categories exist.
@@ -190,12 +216,6 @@ Last updated: 2026-05-02
 - Savings goals:
   - Manual contribution mode.
   - Historical goal progress chart.
-- Recurring engine:
-  - Confirmation flow before posting generated entries.
-  - Skip/postpone one occurrence.
-  - Pause/resume a recurring schedule.
-  - Mark recurring bill occurrence as paid/missed.
-  - Local notification integration for stored reminder lead days.
 - Search and filters:
   - Search by description, amount, category, account, and date.
   - Filter by account, category, type, recurring status, and amount range.

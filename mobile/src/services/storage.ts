@@ -9,12 +9,23 @@ import type {
   Budget,
   Goal,
   BillOccurrenceRecord,
+  ScheduledOccurrenceRecord,
 } from '../types';
+
+export interface ThemePreferencesPayload {
+  preset: string;
+  mode: 'system' | 'light' | 'dark';
+  accent: string | null;
+  fontPair?: string;
+}
 
 export interface DataService {
   getTheme(): Promise<string | null>;
   setTheme(theme: string): Promise<void>;
-  
+
+  getThemePreferences(): Promise<ThemePreferencesPayload | null>;
+  setThemePreferences(payload: ThemePreferencesPayload): Promise<void>;
+
   getCurrency(): Promise<string | null>;
   setCurrency(curr: string): Promise<void>;
 
@@ -47,6 +58,10 @@ export interface DataService {
 
   getBillOccurrenceRecords(): Promise<BillOccurrenceRecord[]>;
   saveBillOccurrenceRecords(records: BillOccurrenceRecord[]): Promise<void>;
+  clearLegacyBillOccurrenceRecords(): Promise<void>;
+
+  getScheduledOccurrenceRecords(): Promise<ScheduledOccurrenceRecord[]>;
+  saveScheduledOccurrenceRecords(records: ScheduledOccurrenceRecord[]): Promise<void>;
 
   getAppLock(): Promise<boolean>;
   setAppLock(enabled: boolean): Promise<void>;
@@ -56,6 +71,7 @@ export interface DataService {
 
 class LocalDataService implements DataService {
   private readonly THEME_KEY = 'budget:theme:v1';
+  private readonly THEME_PREFS_KEY = 'budget:theme:v2';
   private readonly STORAGE_KEY = 'budget:transactions:v1';
   private readonly LEDGER_KEY = 'budget:ledgers:v1';
   private readonly ACTIVE_LEDGER_KEY = 'budget:active-ledger:v1';
@@ -67,6 +83,7 @@ class LocalDataService implements DataService {
   private readonly BUDGETS_KEY = 'budget:budgets:v1';
   private readonly GOALS_KEY = 'budget:goals:v1';
   private readonly BILL_OCCURRENCES_KEY = 'budget:bill-occurrences:v1';
+  private readonly SCHEDULED_OCCURRENCES_KEY = 'budget:scheduled-occurrences:v2';
   private readonly APPLOCK_KEY = 'budget:applock:v1';
 
   async getTheme(): Promise<string | null> {
@@ -75,6 +92,20 @@ class LocalDataService implements DataService {
 
   async setTheme(theme: string): Promise<void> {
     await AsyncStorage.setItem(this.THEME_KEY, theme);
+  }
+
+  async getThemePreferences(): Promise<ThemePreferencesPayload | null> {
+    const raw = await AsyncStorage.getItem(this.THEME_PREFS_KEY);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as ThemePreferencesPayload;
+    } catch {
+      return null;
+    }
+  }
+
+  async setThemePreferences(payload: ThemePreferencesPayload): Promise<void> {
+    await AsyncStorage.setItem(this.THEME_PREFS_KEY, JSON.stringify(payload));
   }
 
   async getCurrency(): Promise<string | null> {
@@ -216,7 +247,25 @@ class LocalDataService implements DataService {
   }
 
   async saveBillOccurrenceRecords(records: BillOccurrenceRecord[]): Promise<void> {
-    await AsyncStorage.setItem(this.BILL_OCCURRENCES_KEY, JSON.stringify(records));
+    void records;
+  }
+
+  async clearLegacyBillOccurrenceRecords(): Promise<void> {
+    await AsyncStorage.removeItem(this.BILL_OCCURRENCES_KEY);
+  }
+
+  async getScheduledOccurrenceRecords(): Promise<ScheduledOccurrenceRecord[]> {
+    const raw = await AsyncStorage.getItem(this.SCHEDULED_OCCURRENCES_KEY);
+    if (!raw) return [];
+    try {
+      return JSON.parse(raw) as ScheduledOccurrenceRecord[];
+    } catch {
+      return [];
+    }
+  }
+
+  async saveScheduledOccurrenceRecords(records: ScheduledOccurrenceRecord[]): Promise<void> {
+    await AsyncStorage.setItem(this.SCHEDULED_OCCURRENCES_KEY, JSON.stringify(records));
   }
 
   async getAppLock(): Promise<boolean> {
@@ -241,6 +290,7 @@ class LocalDataService implements DataService {
       this.BUDGETS_KEY,
       this.GOALS_KEY,
       this.BILL_OCCURRENCES_KEY,
+      this.SCHEDULED_OCCURRENCES_KEY,
     ]);
   }
 }

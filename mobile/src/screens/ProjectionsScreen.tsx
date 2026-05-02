@@ -7,10 +7,9 @@ import { Section, Empty } from '../components/ui/Layout';
 import { fonts } from '../theme';
 import {
   addMonthsClamped,
-  estimateMonthlyImpact,
+  deriveScheduledOccurrences,
   formatDisplayDate,
   formatISODate,
-  generateRecurringOccurrences,
   getNextOccurrenceDate,
   getRecurringDescription,
 } from '../utils/recurring';
@@ -20,6 +19,7 @@ export function ProjectionsScreen() {
   const {
     transactions,
     transactionEditHistory,
+    scheduledOccurrenceRecords,
     ledgers,
     reportingCurrency,
     formatReportingMoney,
@@ -29,12 +29,17 @@ export function ProjectionsScreen() {
   const { width } = useWindowDimensions();
 
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const todayIso = formatISODate(new Date());
-  const rangeEndIso = formatISODate(addMonthsClamped(new Date(), 12));
-
   const recurring = transactions.filter((t) => t.recurring && !t.generatedFromRecurringId);
-  const upcoming = recurring
-    .flatMap((transaction) => generateRecurringOccurrences(transaction, todayIso, rangeEndIso))
+  const upcoming = useMemo(
+    () =>
+      deriveScheduledOccurrences(
+        transactions,
+        scheduledOccurrenceRecords,
+        new Date(),
+        { pastDays: 0, futureDays: 365 },
+      ).occurrences.filter((occurrence) => occurrence.recordStatus !== 'skipped'),
+    [scheduledOccurrenceRecords, transactions],
+  )
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
 
   const ledgerCurrencyCode = (ledgerId?: string | null) =>
@@ -43,12 +48,11 @@ export function ProjectionsScreen() {
   const amountInReportingCurrency = (amount: number, ledgerId?: string | null) =>
     convertAmountToReporting(amount, ledgerCurrencyCode(ledgerId)).amount;
 
-  const monthlyAverage = recurring.reduce((sum, transaction) => {
-    return (
-      sum +
-      amountInReportingCurrency(estimateMonthlyImpact(transaction), transaction.ledgerId)
-    );
+  const monthlyAverage = upcoming.reduce((sum, occurrence) => {
+    const signedAmount = occurrence.type === 'income' ? occurrence.amount : -occurrence.amount;
+    return sum + amountInReportingCurrency(signedAmount, occurrence.source.ledgerId);
   }, 0);
+  const normalizedMonthlyAverage = monthlyAverage / 12;
 
   const projection = useMemo(() => {
     const months: { label: string; cumulative: number }[] = [];
@@ -104,7 +108,7 @@ export function ProjectionsScreen() {
               { color: positive ? '#9BC4A8' : '#D89992' },
             ]}
           >
-            {formatReportingMoney(Math.abs(monthlyAverage))}
+            {formatReportingMoney(Math.abs(normalizedMonthlyAverage))}
           </Text>{' '}
           monthly average
         </Text>
@@ -131,7 +135,7 @@ export function ProjectionsScreen() {
       </Section>
 
       <Section
-        title="Bill Calendar"
+        title="Schedule Calendar"
         subtitle={`${upcoming.slice(0, 8).length} upcoming in ${reportingCurrency.code}`}
       >
         {upcoming.length === 0 ? (
@@ -144,7 +148,7 @@ export function ProjectionsScreen() {
                 occurrence.source.ledgerId,
               );
               return (
-                <View key={`${occurrence.source.id}-${occurrence.dueDate}`} style={styles.calendarCard}>
+                  <View key={occurrence.id} style={styles.calendarCard}>
                   <View style={styles.datePill}>
                     <Text style={styles.dateMonth}>
                       {formatMonth(occurrence.dueDate)}
@@ -157,6 +161,7 @@ export function ProjectionsScreen() {
                     </Text>
                     <Text style={styles.recurringMeta} numberOfLines={2}>
                       {occurrence.source.category} - {getRecurringDescription(occurrence.source)}
+                      {occurrence.status === 'postponed' ? ' - postponed' : ''}
                     </Text>
                   </View>
                   <Text
@@ -175,13 +180,15 @@ export function ProjectionsScreen() {
         )}
       </Section>
 
-      <Section title="Recurring Items" subtitle={`${recurring.length} active in ${reportingCurrency.code}`}>
+      <Section title="Recurring Items" subtitle={`${recurring.length} schedules in ${reportingCurrency.code}`}>
         {recurring.length === 0 ? (
           <Empty msg="No recurring transactions yet." />
         ) : (
           <View style={{ gap: 10 }}>
             {recurring.map((t) => {
-              const nextDue = getNextOccurrenceDate(t);
+              const nextDue = t.recurringSchedule?.paused
+                ? null
+                : upcoming.find((occurrence) => occurrence.source.id === t.id)?.dueDate ?? getNextOccurrenceDate(t);
               const reportingAmount = amountInReportingCurrency(t.amount, t.ledgerId);
               return (
                 <View key={t.id} style={styles.recurringCard}>
@@ -189,6 +196,7 @@ export function ProjectionsScreen() {
                     <Text style={styles.recurringTitle} numberOfLines={2}>{t.description}</Text>
                     <Text style={styles.recurringMeta} numberOfLines={2}>
                       {getRecurringDescription(t)}
+                      {t.recurringSchedule?.paused ? ' - paused' : ''}
                       {nextDue ? ` - next ${formatDisplayDate(nextDue)}` : ''}
                     </Text>
                   </View>

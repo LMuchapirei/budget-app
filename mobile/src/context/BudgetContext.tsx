@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useMemo, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import type {
   Transaction,
   CustomCategory,
@@ -15,12 +15,14 @@ import type {
   Goal,
   GoalProgress,
   GoalPacing,
-  BillOccurrence,
-  BillDisplayStatus,
+  ConfirmOccurrenceOverride,
+  ScheduledOccurrence,
+  ScheduledOccurrenceDisplayStatus,
   BillOccurrenceRecord,
-  BillOccurrenceStatus,
   BillNotificationStatus,
   BillNotificationSyncResult,
+  ScheduledOccurrenceRecord,
+  ScheduledOccurrenceStatus,
 } from '../types';
 import { storage } from '../services/storage';
 import {
@@ -39,19 +41,18 @@ import {
   normalizeCurrencyCode,
 } from '../utils/currency';
 import {
-  addMonthsClamped,
+  deriveScheduledOccurrences,
   estimateMonthlyImpact,
   formatISODate,
-  generateRecurringOccurrences,
-  materializeRecurringTransactions,
   normalizeRecurringSchedule,
 } from '../utils/recurring';
 import {
-  cancelBillReminder,
-  getBillNotificationPermission,
-  requestBillNotificationPermission as requestDeviceBillNotificationPermission,
-  scheduleBillReminder,
-} from '../services/billNotifications';
+  cancelAllOccurrenceReminders,
+  cancelOccurrenceReminder,
+  getScheduledNotificationPermission,
+  requestScheduledNotificationPermission as requestDeviceScheduledNotificationPermission,
+  scheduleOccurrenceReminder,
+} from '../services/scheduledNotifications';
 
 export interface DateFilter {
   startDate: string; // YYYY-MM-DD
@@ -102,8 +103,20 @@ interface BudgetContextValue {
   resumeGoal: (id: string) => void;
   markGoalComplete: (id: string) => void;
   ledgerBalance: (id: string) => number;
-  billOccurrences: BillOccurrence[];
-  billOccurrenceRecords: BillOccurrenceRecord[];
+  scheduledOccurrences: ScheduledOccurrence[];
+  scheduledOccurrenceRecords: ScheduledOccurrenceRecord[];
+  scheduledNotificationStatus: BillNotificationStatus;
+  confirmOccurrence: (id: string, override?: ConfirmOccurrenceOverride) => void;
+  skipOccurrence: (id: string) => void;
+  postponeOccurrence: (id: string, newDate: string) => void;
+  clearOccurrenceStatus: (id: string) => void;
+  pauseSchedule: (transactionId: string) => void;
+  resumeSchedule: (transactionId: string) => void;
+  refreshScheduledNotificationPermission: () => Promise<BillNotificationStatus>;
+  requestScheduledNotificationPermission: () => Promise<BillNotificationStatus>;
+  syncScheduledNotifications: () => Promise<BillNotificationSyncResult>;
+  billOccurrences: ScheduledOccurrence[];
+  billOccurrenceRecords: ScheduledOccurrenceRecord[];
   billNotificationStatus: BillNotificationStatus;
   markBillPaid: (id: string) => void;
   markBillMissed: (id: string) => void;
@@ -191,17 +204,41 @@ function daysBetween(start: Date, end: Date) {
   return Math.ceil((endDay.getTime() - startDay.getTime()) / 86400000);
 }
 
-function billOccurrenceId(recurringTransactionId: string, dueDate: string) {
-  return `${recurringTransactionId}:${dueDate}`;
+function scheduledOccurrenceId(sourceTransactionId: string, dueDate: string) {
+  return `${sourceTransactionId}:${dueDate}`;
 }
 
-function parseBillOccurrenceId(id: string) {
+function parseScheduledOccurrenceId(id: string) {
   const splitAt = id.lastIndexOf(':');
-  if (splitAt === -1) return { recurringTransactionId: id, dueDate: '' };
+  if (splitAt === -1) return { sourceTransactionId: id, dueDate: '' };
   return {
-    recurringTransactionId: id.slice(0, splitAt),
+    sourceTransactionId: id.slice(0, splitAt),
     dueDate: id.slice(splitAt + 1),
   };
+}
+
+function migrateLegacyBillRecords(
+  legacy: BillOccurrenceRecord[],
+  txs: Transaction[],
+): ScheduledOccurrenceRecord[] {
+  return legacy.map((record) => {
+    const confirmedTransaction = txs.find(
+      (transaction) =>
+        transaction.generatedFromRecurringId === record.recurringTransactionId &&
+        transaction.generatedOccurrenceDate === record.dueDate,
+    );
+    return {
+      id: scheduledOccurrenceId(record.recurringTransactionId, record.dueDate),
+      sourceTransactionId: record.recurringTransactionId,
+      originalDueDate: record.dueDate,
+      effectiveDueDate: record.dueDate,
+      status: record.status === 'paid' ? 'confirmed' : 'skipped',
+      confirmedTransactionId: record.status === 'paid' ? confirmedTransaction?.id : undefined,
+      notificationId: record.notificationId,
+      notificationScheduledAt: record.notificationScheduledAt,
+      markedAt: record.markedAt,
+    };
+  });
 }
 
 export function BudgetProvider({ children }: { children: React.ReactNode }) {
@@ -212,8 +249,8 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   const [customCategories, setCustomCategories] = useState<CustomCategory[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
-  const [billOccurrenceRecords, setBillOccurrenceRecords] = useState<BillOccurrenceRecord[]>([]);
-  const [billNotificationStatus, setBillNotificationStatus] =
+  const [scheduledOccurrenceRecords, setScheduledOccurrenceRecords] = useState<ScheduledOccurrenceRecord[]>([]);
+  const [scheduledNotificationStatus, setScheduledNotificationStatus] =
     useState<BillNotificationStatus>('unknown');
   const [reportingCurrency, setReportingCurrencyState] =
     useState<ReportingCurrency>(DEFAULT_REPORTING_CURRENCY);
@@ -241,18 +278,15 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
           await storage.saveLedgers(nextLedgers);
         }
 
+        let normalizedTransactions: Transaction[] = [];
         if (txs) {
-          const migratedTxs = txs.map((t) => ({
+          normalizedTransactions = txs.map((t) => ({
             ...t,
             ledgerId: t.ledgerId ?? DEFAULT_LEDGER_ID,
           }));
-          const materializedTxs = materializeRecurringTransactions(migratedTxs);
-          setTransactions(materializedTxs);
-          if (
-            materializedTxs.length !== txs.length ||
-            migratedTxs.some((t, i) => t.ledgerId !== txs[i]?.ledgerId)
-          ) {
-            await storage.saveTransactions(materializedTxs);
+          setTransactions(normalizedTransactions);
+          if (normalizedTransactions.some((t, i) => t.ledgerId !== txs[i]?.ledgerId)) {
+            await storage.saveTransactions(normalizedTransactions);
           }
         }
 
@@ -278,10 +312,23 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
         const savedGoals = storage.getGoals ? await storage.getGoals() : [];
         if (savedGoals) setGoals(savedGoals);
 
-        const savedBillOccurrenceRecords = storage.getBillOccurrenceRecords
+        const savedScheduledOccurrenceRecords = storage.getScheduledOccurrenceRecords
+          ? await storage.getScheduledOccurrenceRecords()
+          : [];
+        const legacyBillOccurrenceRecords = storage.getBillOccurrenceRecords
           ? await storage.getBillOccurrenceRecords()
           : [];
-        if (savedBillOccurrenceRecords) setBillOccurrenceRecords(savedBillOccurrenceRecords);
+        if (savedScheduledOccurrenceRecords.length > 0) {
+          setScheduledOccurrenceRecords(savedScheduledOccurrenceRecords);
+        } else if (legacyBillOccurrenceRecords.length > 0) {
+          const migrated = migrateLegacyBillRecords(
+            legacyBillOccurrenceRecords,
+            normalizedTransactions,
+          );
+          setScheduledOccurrenceRecords(migrated);
+          await storage.saveScheduledOccurrenceRecords(migrated);
+          await storage.clearLegacyBillOccurrenceRecords();
+        }
 
         const savedReportingCurrency = await storage.getReportingCurrency();
         const legacyCurrencySymbol = await storage.getCurrency();
@@ -296,7 +343,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
         const cachedRates = await storage.getExchangeRatesCache();
         if (cachedRates) setFxRates(cachedRates);
 
-        setBillNotificationStatus(await getBillNotificationPermission());
+        setScheduledNotificationStatus(await getScheduledNotificationPermission());
       } catch {
         // First run
       }
@@ -358,10 +405,10 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const persistBillOccurrenceRecords = useCallback(async (next: BillOccurrenceRecord[]) => {
-    setBillOccurrenceRecords(next);
+  const persistScheduledOccurrenceRecords = useCallback(async (next: ScheduledOccurrenceRecord[]) => {
+    setScheduledOccurrenceRecords(next);
     try {
-      await storage.saveBillOccurrenceRecords(next);
+      await storage.saveScheduledOccurrenceRecords(next);
     } catch (e) {
       console.error(e);
     }
@@ -522,16 +569,54 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
       t.ledgerId ??
       (activeLedgerId === ALL_LEDGER_ID ? DEFAULT_LEDGER_ID : activeLedgerId);
     const next = [{ ...t, ledgerId, id: Date.now().toString() }, ...transactions];
-    persistTransactions(materializeRecurringTransactions(next));
+    persistTransactions(next);
+  };
+
+  const cleanupScheduledRecordsForSource = useCallback(
+    (sourceTransactionId: string, mode: 'all' | 'pending' = 'all') => {
+      const matching = scheduledOccurrenceRecords.filter(
+        (record) => record.sourceTransactionId === sourceTransactionId,
+      );
+      if (matching.length === 0) return;
+      matching.forEach((record) => {
+        if (record.notificationId) {
+          cancelOccurrenceReminder(record.notificationId).catch(console.error);
+        }
+      });
+      persistScheduledOccurrenceRecords(
+        scheduledOccurrenceRecords.filter(
+          (record) =>
+            record.sourceTransactionId !== sourceTransactionId ||
+            (mode === 'pending' && record.status !== 'pending'),
+        ),
+      );
+    },
+    [persistScheduledOccurrenceRecords, scheduledOccurrenceRecords],
+  );
+
+  const recurringScheduleChanged = (before: Transaction, after: Transaction) => {
+    if (before.recurring !== after.recurring) return true;
+    if (before.date !== after.date) return true;
+    const a = before.recurringSchedule;
+    const b = after.recurringSchedule;
+    if (!a && !b) return false;
+    if (!a || !b) return true;
+    return (
+      a.frequency !== b.frequency ||
+      a.interval !== b.interval ||
+      a.startDate !== b.startDate ||
+      a.endDate !== b.endDate ||
+      a.reminderDaysBefore !== b.reminderDaysBefore ||
+      a.postMode !== b.postMode ||
+      a.paused !== b.paused
+    );
   };
 
   const updateTransaction = (updated: Transaction) => {
     const before = transactions.find((x) => x.id === updated.id);
     if (!before) return;
 
-    const nextTransactions = materializeRecurringTransactions(
-      transactions.map((x) => (x.id === updated.id ? updated : x)),
-    );
+    const nextTransactions = transactions.map((x) => (x.id === updated.id ? updated : x));
     const projectionMonthlyDelta = monthlyProjectionValue(updated) - monthlyProjectionValue(before);
     const edit: TransactionEditHistory = {
       id: `${Date.now()}-${updated.id}`,
@@ -545,9 +630,14 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
 
     persistTransactions(nextTransactions);
     persistEditHistory([edit, ...transactionEditHistory]);
+
+    if (recurringScheduleChanged(before, updated)) {
+      cleanupScheduledRecordsForSource(updated.id, 'pending');
+    }
   };
 
   const removeTransaction = (id: string) => {
+    cleanupScheduledRecordsForSource(id, 'all');
     persistTransactions(transactions.filter((x) => x.id !== id));
   };
 
@@ -632,6 +722,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   }, [setReportingCurrency]);
 
   const clearAllData = async () => {
+    await cancelAllOccurrenceReminders();
     await storage.clearAllData();
     setTransactions([]);
     setTransactionEditHistory([]);
@@ -640,8 +731,8 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     setCustomCategories([]);
     setBudgets([]);
     setGoals([]);
-    setBillOccurrenceRecords([]);
-    setBillNotificationStatus('unknown');
+    setScheduledOccurrenceRecords([]);
+    setScheduledNotificationStatus('unknown');
     setReportingCurrencyState(DEFAULT_REPORTING_CURRENCY);
     setFxRates(null);
     setFxStatus('idle');
@@ -843,138 +934,280 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     });
   }, [goals, ledgerBalance, ledgers, reportingCurrency]);
 
-  const billOccurrences = useMemo<BillOccurrence[]>(() => {
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
-    const todayIso = formatISODate(now);
-    const rangeStart = new Date(now);
-    rangeStart.setDate(rangeStart.getDate() - 30);
-    const rangeEnd = addMonthsClamped(now, 3);
-    const recordMap = new Map(billOccurrenceRecords.map((record) => [record.id, record]));
+  const derivedSchedule = useMemo(
+    () => deriveScheduledOccurrences(transactions, scheduledOccurrenceRecords),
+    [scheduledOccurrenceRecords, transactions],
+  );
 
-    return transactions
-      .filter((transaction) =>
-        transaction.type === 'expense' &&
-        transaction.recurring &&
-        !transaction.generatedFromRecurringId
+  const scheduledOccurrences = useMemo<ScheduledOccurrence[]>(() => {
+    return derivedSchedule.occurrences.map((occurrence) => {
+      const ledger = ledgers.find((item) => item.id === (occurrence.source.ledgerId ?? DEFAULT_LEDGER_ID));
+      return {
+        ...occurrence,
+        ledgerName: ledger?.name,
+        ledgerArchived: Boolean(ledger?.archived),
+        currencyCode: normalizeCurrencyCode(ledger?.currencyCode ?? reportingCurrency.code),
+        currencySymbol: ledger?.currencySymbol ?? reportingCurrency.symbol,
+      };
+    });
+  }, [derivedSchedule.occurrences, ledgers, reportingCurrency]);
+
+  useEffect(() => {
+    if (loading) return;
+    if (
+      derivedSchedule.autoConfirmTransactions.length > 0 &&
+      derivedSchedule.autoConfirmTransactions.some(
+        (next) => !transactions.some((transaction) => transaction.id === next.id),
       )
-      .flatMap((source) => {
-        const schedule = normalizeRecurringSchedule(source);
-        if (!schedule) return [];
-        const ledger = ledgers.find((item) => item.id === (source.ledgerId ?? DEFAULT_LEDGER_ID));
-        return generateRecurringOccurrences(
-          source,
-          formatISODate(rangeStart),
-          formatISODate(rangeEnd),
-        ).map((occurrence) => {
-          const id = billOccurrenceId(source.id, occurrence.dueDate);
-          const record = recordMap.get(id);
-          const dueDate = parseLocalDate(occurrence.dueDate) ?? now;
-          const daysUntilDue = daysBetween(now, dueDate);
-          const status: BillDisplayStatus =
-            record?.status ??
-            (occurrence.dueDate < todayIso
-              ? 'missed'
-              : occurrence.dueDate === todayIso
-              ? 'due-today'
-              : 'upcoming');
-
-          return {
-            id,
-            source,
-            dueDate: occurrence.dueDate,
-            amount: occurrence.amount,
-            status,
-            manualStatus: record?.status,
-            daysUntilDue,
-            reminderDaysBefore: Math.max(0, Number(schedule.reminderDaysBefore ?? 0)),
-            ledgerName: ledger?.name,
-            ledgerArchived: Boolean(ledger?.archived),
-            currencyCode: normalizeCurrencyCode(ledger?.currencyCode ?? reportingCurrency.code),
-            currencySymbol: ledger?.currencySymbol ?? reportingCurrency.symbol,
-            notificationId: record?.notificationId,
-          };
-        });
-      })
-      .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
-  }, [billOccurrenceRecords, ledgers, reportingCurrency, transactions]);
-
-  const upsertBillRecord = useCallback(
-    (id: string, status: BillOccurrenceStatus) => {
-      const existing = billOccurrenceRecords.find((record) => record.id === id);
-      if (existing?.notificationId) {
-        cancelBillReminder(existing.notificationId).catch(console.error);
+    ) {
+      const existingIds = new Set(transactions.map((transaction) => transaction.id));
+      const additions = derivedSchedule.autoConfirmTransactions.filter(
+        (transaction) => !existingIds.has(transaction.id),
+      );
+      if (additions.length > 0) {
+        persistTransactions([...additions, ...transactions]);
       }
-      const parsed = parseBillOccurrenceId(id);
-      const nextRecord: BillOccurrenceRecord = {
+    }
+
+    if (derivedSchedule.recordsToPersist.length !== scheduledOccurrenceRecords.length) {
+      persistScheduledOccurrenceRecords(derivedSchedule.recordsToPersist);
+    }
+  }, [
+    derivedSchedule.autoConfirmTransactions,
+    derivedSchedule.recordsToPersist,
+    loading,
+    persistScheduledOccurrenceRecords,
+    persistTransactions,
+    scheduledOccurrenceRecords.length,
+    transactions,
+  ]);
+
+  const upsertScheduledRecord = useCallback(
+    (record: ScheduledOccurrenceRecord) => {
+      const rest = scheduledOccurrenceRecords.filter((item) => item.id !== record.id);
+      persistScheduledOccurrenceRecords([record, ...rest]);
+    },
+    [persistScheduledOccurrenceRecords, scheduledOccurrenceRecords],
+  );
+
+  const confirmOccurrence = useCallback(
+    (id: string, override?: ConfirmOccurrenceOverride) => {
+      const occurrence = scheduledOccurrences.find((item) => item.id === id);
+      const parsed = parseScheduledOccurrenceId(id);
+      const source =
+        occurrence?.source ?? transactions.find((transaction) => transaction.id === parsed.sourceTransactionId);
+      if (!source) return;
+
+      const existing = scheduledOccurrenceRecords.find((record) => record.id === id);
+      if (existing?.status === 'confirmed') return;
+      if (existing?.notificationId) {
+        cancelOccurrenceReminder(existing.notificationId).catch(console.error);
+      }
+
+      const effectiveDueDate =
+        override?.date ?? occurrence?.effectiveDueDate ?? existing?.effectiveDueDate ?? parsed.dueDate;
+      const originalDueDate = occurrence?.originalDueDate ?? existing?.originalDueDate ?? parsed.dueDate;
+      const nowStamp = Date.now();
+      const confirmedTransaction: Transaction = {
+        ...source,
+        id: `${source.id}-${effectiveDueDate}-${nowStamp}`,
+        amount: override?.amount ?? source.amount,
+        category: override?.category ?? source.category,
+        ledgerId: override?.ledgerId ?? source.ledgerId,
+        date: effectiveDueDate,
+        recurring: false,
+        recurringSchedule: undefined,
+        generatedFromRecurringId: source.id,
+        generatedOccurrenceDate: effectiveDueDate,
+      };
+
+      persistTransactions([confirmedTransaction, ...transactions]);
+      upsertScheduledRecord({
         ...existing,
         id,
-        recurringTransactionId: existing?.recurringTransactionId ?? parsed.recurringTransactionId,
-        dueDate: existing?.dueDate ?? parsed.dueDate,
-        status,
-        markedAt: new Date().toISOString(),
+        sourceTransactionId: source.id,
+        originalDueDate,
+        effectiveDueDate,
+        status: 'confirmed',
+        confirmedTransactionId: confirmedTransaction.id,
         notificationId: undefined,
         notificationScheduledAt: undefined,
-      };
-      const rest = billOccurrenceRecords.filter((record) => record.id !== id);
-      persistBillOccurrenceRecords([nextRecord, ...rest]);
+        markedAt: new Date().toISOString(),
+      });
     },
-    [billOccurrenceRecords, persistBillOccurrenceRecords],
+    [
+      persistTransactions,
+      scheduledOccurrenceRecords,
+      scheduledOccurrences,
+      transactions,
+      upsertScheduledRecord,
+    ],
   );
 
-  const markBillPaid = useCallback(
-    (id: string) => upsertBillRecord(id, 'paid'),
-    [upsertBillRecord],
-  );
-
-  const markBillMissed = useCallback(
-    (id: string) => upsertBillRecord(id, 'missed'),
-    [upsertBillRecord],
-  );
-
-  const clearBillStatus = useCallback(
-    (id: string) => {
-      const existing = billOccurrenceRecords.find((record) => record.id === id);
+  const setOccurrenceStatus = useCallback(
+    (id: string, status: ScheduledOccurrenceStatus) => {
+      const occurrence = scheduledOccurrences.find((item) => item.id === id);
+      const parsed = parseScheduledOccurrenceId(id);
+      const existing = scheduledOccurrenceRecords.find((record) => record.id === id);
       if (existing?.notificationId) {
-        cancelBillReminder(existing.notificationId).catch(console.error);
+        cancelOccurrenceReminder(existing.notificationId).catch(console.error);
       }
-      persistBillOccurrenceRecords(billOccurrenceRecords.filter((record) => record.id !== id));
+      const sourceTransactionId =
+        occurrence?.source.id ?? existing?.sourceTransactionId ?? parsed.sourceTransactionId;
+      const originalDueDate = occurrence?.originalDueDate ?? existing?.originalDueDate ?? parsed.dueDate;
+      const effectiveDueDate = occurrence?.effectiveDueDate ?? existing?.effectiveDueDate ?? parsed.dueDate;
+      upsertScheduledRecord({
+        ...existing,
+        id,
+        sourceTransactionId,
+        originalDueDate,
+        effectiveDueDate,
+        status,
+        notificationId: undefined,
+        notificationScheduledAt: undefined,
+        markedAt: new Date().toISOString(),
+      });
     },
-    [billOccurrenceRecords, persistBillOccurrenceRecords],
+    [scheduledOccurrenceRecords, scheduledOccurrences, upsertScheduledRecord],
   );
 
-  const refreshBillNotificationPermission = useCallback(async () => {
-    const nextStatus = await getBillNotificationPermission();
-    setBillNotificationStatus(nextStatus);
+  const skipOccurrence = useCallback(
+    (id: string) => setOccurrenceStatus(id, 'skipped'),
+    [setOccurrenceStatus],
+  );
+
+  const postponeOccurrence = useCallback(
+    (id: string, newDate: string) => {
+      const todayIso = formatISODate(new Date());
+      if (newDate < todayIso) return;
+
+      const occurrence = scheduledOccurrences.find((item) => item.id === id);
+      const parsed = parseScheduledOccurrenceId(id);
+      const source =
+        occurrence?.source ?? transactions.find((transaction) => transaction.id === parsed.sourceTransactionId);
+      const schedule = source ? normalizeRecurringSchedule(source) : undefined;
+      if (!source || (schedule?.endDate && newDate > schedule.endDate)) return;
+
+      const existing = scheduledOccurrenceRecords.find((record) => record.id === id);
+      if (existing?.notificationId) {
+        cancelOccurrenceReminder(existing.notificationId).catch(console.error);
+      }
+
+      upsertScheduledRecord({
+        ...existing,
+        id,
+        sourceTransactionId: source.id,
+        originalDueDate: occurrence?.originalDueDate ?? existing?.originalDueDate ?? parsed.dueDate,
+        effectiveDueDate: newDate,
+        status: 'postponed',
+        postponedFrom: occurrence?.effectiveDueDate ?? existing?.effectiveDueDate ?? parsed.dueDate,
+        notificationId: undefined,
+        notificationScheduledAt: undefined,
+        markedAt: new Date().toISOString(),
+      });
+    },
+    [scheduledOccurrenceRecords, scheduledOccurrences, transactions, upsertScheduledRecord],
+  );
+
+  const clearOccurrenceStatus = useCallback(
+    (id: string) => {
+      const existing = scheduledOccurrenceRecords.find((record) => record.id === id);
+      if (existing?.notificationId) {
+        cancelOccurrenceReminder(existing.notificationId).catch(console.error);
+      }
+      persistScheduledOccurrenceRecords(scheduledOccurrenceRecords.filter((record) => record.id !== id));
+    },
+    [persistScheduledOccurrenceRecords, scheduledOccurrenceRecords],
+  );
+
+  const pauseSchedule = useCallback(
+    (transactionId: string) => {
+      const nowIso = new Date().toISOString();
+      const source = transactions.find((transaction) => transaction.id === transactionId);
+      if (!source?.recurringSchedule) return;
+      scheduledOccurrenceRecords
+        .filter((record) => record.sourceTransactionId === transactionId && record.notificationId)
+        .forEach((record) => cancelOccurrenceReminder(record.notificationId).catch(console.error));
+
+      persistTransactions(
+        transactions.map((transaction) =>
+          transaction.id === transactionId
+            ? {
+                ...transaction,
+                recurringSchedule: {
+                  ...transaction.recurringSchedule!,
+                  paused: true,
+                  pausedAt: nowIso,
+                },
+              }
+            : transaction,
+        ),
+      );
+    },
+    [persistTransactions, scheduledOccurrenceRecords, transactions],
+  );
+
+  const resumeSchedule = useCallback(
+    (transactionId: string) => {
+      const todayIso = formatISODate(new Date());
+      persistTransactions(
+        transactions.map((transaction) =>
+          transaction.id === transactionId && transaction.recurringSchedule
+            ? {
+                ...transaction,
+                recurringSchedule: {
+                  ...transaction.recurringSchedule,
+                  paused: false,
+                  pausedAt: undefined,
+                  startDate: todayIso,
+                },
+              }
+            : transaction,
+        ),
+      );
+    },
+    [persistTransactions, transactions],
+  );
+
+  const refreshScheduledNotificationPermission = useCallback(async () => {
+    const nextStatus = await getScheduledNotificationPermission();
+    setScheduledNotificationStatus(nextStatus);
     return nextStatus;
   }, []);
 
-  const syncBillNotifications = useCallback(async (): Promise<BillNotificationSyncResult> => {
-    const permission = await getBillNotificationPermission();
-    setBillNotificationStatus(permission);
-    if (permission !== 'granted') return { scheduled: 0, skipped: billOccurrences.length };
+  const syncScheduledNotifications = useCallback(async (): Promise<BillNotificationSyncResult> => {
+    const permission = await getScheduledNotificationPermission();
+    setScheduledNotificationStatus(permission);
+    if (permission !== 'granted') return { scheduled: 0, skipped: scheduledOccurrences.length };
 
-    const recordMap = new Map(billOccurrenceRecords.map((record) => [record.id, record]));
+    const recordMap = new Map(scheduledOccurrenceRecords.map((record) => [record.id, record]));
     const nextRecordMap = new Map(recordMap);
     let scheduled = 0;
     let skipped = 0;
 
-    for (const occurrence of billOccurrences) {
-      if (occurrence.status === 'paid' || occurrence.status === 'missed') {
+    for (const occurrence of scheduledOccurrences) {
+      const schedule = normalizeRecurringSchedule(occurrence.source);
+      const closed =
+        occurrence.recordStatus === 'confirmed' ||
+        occurrence.recordStatus === 'skipped' ||
+        occurrence.status === 'confirmed' ||
+        occurrence.status === 'skipped';
+      if (closed || schedule?.paused || occurrence.reminderDaysBefore <= 0) {
         skipped += 1;
         continue;
       }
 
       const existing = recordMap.get(occurrence.id);
       if (existing?.notificationId) {
-        await cancelBillReminder(existing.notificationId);
+        await cancelOccurrenceReminder(existing.notificationId);
       }
 
-      const notificationId = await scheduleBillReminder({
+      const notificationId = await scheduleOccurrenceReminder({
         id: occurrence.id,
         title: occurrence.source.description,
-        dueDate: occurrence.dueDate,
+        dueDate: occurrence.effectiveDueDate,
         reminderDaysBefore: occurrence.reminderDaysBefore,
+        type: occurrence.type,
       });
 
       if (!notificationId) {
@@ -986,25 +1219,47 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
       nextRecordMap.set(occurrence.id, {
         ...existing,
         id: occurrence.id,
-        recurringTransactionId: occurrence.source.id,
-        dueDate: occurrence.dueDate,
+        sourceTransactionId: occurrence.source.id,
+        originalDueDate: occurrence.originalDueDate,
+        effectiveDueDate: occurrence.effectiveDueDate,
+        status: occurrence.recordStatus ?? 'pending',
         notificationId,
         notificationScheduledAt: new Date().toISOString(),
       });
     }
 
-    persistBillOccurrenceRecords(Array.from(nextRecordMap.values()));
+    persistScheduledOccurrenceRecords(Array.from(nextRecordMap.values()));
     return { scheduled, skipped };
-  }, [billOccurrenceRecords, billOccurrences, persistBillOccurrenceRecords]);
+  }, [persistScheduledOccurrenceRecords, scheduledOccurrenceRecords, scheduledOccurrences]);
 
-  const requestBillNotificationPermission = useCallback(async () => {
-    const nextStatus = await requestDeviceBillNotificationPermission();
-    setBillNotificationStatus(nextStatus);
+  const requestScheduledNotificationPermission = useCallback(async () => {
+    const nextStatus = await requestDeviceScheduledNotificationPermission();
+    setScheduledNotificationStatus(nextStatus);
     if (nextStatus === 'granted') {
-      await syncBillNotifications();
+      await syncScheduledNotifications();
     }
     return nextStatus;
-  }, [syncBillNotifications]);
+  }, [syncScheduledNotifications]);
+
+  const autoSyncedRef = useRef(false);
+  useEffect(() => {
+    if (loading) return;
+    if (autoSyncedRef.current) return;
+    if (scheduledNotificationStatus !== 'granted') return;
+    if (scheduledOccurrences.length === 0) return;
+    autoSyncedRef.current = true;
+    syncScheduledNotifications().catch(console.error);
+  }, [loading, scheduledNotificationStatus, scheduledOccurrences, syncScheduledNotifications]);
+
+  const billOccurrences = scheduledOccurrences;
+  const billOccurrenceRecords = scheduledOccurrenceRecords;
+  const billNotificationStatus = scheduledNotificationStatus;
+  const markBillPaid = confirmOccurrence;
+  const markBillMissed = skipOccurrence;
+  const clearBillStatus = clearOccurrenceStatus;
+  const refreshBillNotificationPermission = refreshScheduledNotificationPermission;
+  const requestBillNotificationPermission = requestScheduledNotificationPermission;
+  const syncBillNotifications = syncScheduledNotifications;
 
   const stats = useMemo<Stats>(() => {
     const start = new Date(dateFilter.startDate);
@@ -1113,6 +1368,18 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
         resumeGoal,
         markGoalComplete,
         ledgerBalance,
+        scheduledOccurrences,
+        scheduledOccurrenceRecords,
+        scheduledNotificationStatus,
+        confirmOccurrence,
+        skipOccurrence,
+        postponeOccurrence,
+        clearOccurrenceStatus,
+        pauseSchedule,
+        resumeSchedule,
+        refreshScheduledNotificationPermission,
+        requestScheduledNotificationPermission,
+        syncScheduledNotifications,
         billOccurrences,
         billOccurrenceRecords,
         billNotificationStatus,

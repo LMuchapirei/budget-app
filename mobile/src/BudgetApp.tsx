@@ -14,12 +14,32 @@ import {
   Inter_500Medium,
   Inter_600SemiBold,
 } from '@expo-google-fonts/inter';
+import {
+  Jost_300Light,
+  Jost_400Regular,
+  Jost_400Regular_Italic,
+  Jost_500Medium,
+  Jost_600SemiBold,
+} from '@expo-google-fonts/jost';
+import {
+  PlayfairDisplay_400Regular,
+  PlayfairDisplay_400Regular_Italic,
+  PlayfairDisplay_500Medium,
+} from '@expo-google-fonts/playfair-display';
+import {
+  DMSerifDisplay_400Regular,
+  DMSerifDisplay_400Regular_Italic,
+} from '@expo-google-fonts/dm-serif-display';
+import {
+  DMSans_400Regular,
+  DMSans_500Medium,
+  DMSans_600SemiBold,
+} from '@expo-google-fonts/dm-sans';
 import { Plus } from 'lucide-react-native';
 
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { BudgetProvider, useBudget } from './context/BudgetContext';
 import type { Transaction, ViewTab } from './types';
-import { colors as fallbackColors } from './theme';
 
 import { Header } from './components/Header';
 import { BillsScreen } from './screens/BillsScreen';
@@ -153,6 +173,19 @@ export default function BudgetApp() {
     Inter_400Regular,
     Inter_500Medium,
     Inter_600SemiBold,
+    Jost_300Light,
+    Jost_400Regular,
+    Jost_400Regular_Italic,
+    Jost_500Medium,
+    Jost_600SemiBold,
+    PlayfairDisplay_400Regular,
+    PlayfairDisplay_400Regular_Italic,
+    PlayfairDisplay_500Medium,
+    DMSerifDisplay_400Regular,
+    DMSerifDisplay_400Regular_Italic,
+    DMSans_400Regular,
+    DMSans_500Medium,
+    DMSans_600SemiBold,
   });
 
   if (!fontsLoaded) return null;

@@ -39,6 +39,14 @@
         {
           "faceIDPermission": "Allow Budget to use Face ID to protect and unlock your journal."
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#8B5A3C",
+          "androidMode": "default",
+          "androidCollapsedTitle": "Schedule reminders"
+        }
       ]
     ],
     "extra": {

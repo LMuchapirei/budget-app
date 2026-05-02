@@ -4,6 +4,8 @@ export type TxType = 'income' | 'expense';
 
 export type RecurringFrequency = 'daily' | 'weekly' | 'monthly' | 'yearly';
 
+export type RecurringPostMode = 'confirm' | 'auto';
+
 export interface ReportingCurrency {
   code: string;
   symbol: string;
@@ -26,6 +28,9 @@ export interface RecurringSchedule {
   startDate: string;
   endDate?: string;
   reminderDaysBefore?: number;
+  postMode?: RecurringPostMode;
+  paused?: boolean;
+  pausedAt?: string;
 }
 
 export type BudgetPeriod = 'monthly';
@@ -94,6 +99,62 @@ export interface GoalProgress {
   currencyMismatch?: boolean;
 }
 
+export type ScheduledOccurrenceStatus =
+  | 'pending'
+  | 'confirmed'
+  | 'skipped'
+  | 'postponed';
+
+export type ScheduledOccurrenceDisplayStatus =
+  | 'pending'
+  | 'due-now'
+  | 'due-today'
+  | 'upcoming'
+  | 'confirmed'
+  | 'skipped'
+  | 'postponed';
+
+export interface ScheduledOccurrenceRecord {
+  id: string;
+  sourceTransactionId: string;
+  originalDueDate: string;
+  effectiveDueDate: string;
+  status: ScheduledOccurrenceStatus;
+  confirmedTransactionId?: string;
+  postponedFrom?: string;
+  notificationId?: string;
+  notificationScheduledAt?: string;
+  markedAt?: string;
+}
+
+export interface ScheduledOccurrence {
+  id: string;
+  source: Transaction;
+  originalDueDate: string;
+  effectiveDueDate: string;
+  dueDate: string;
+  amount: number;
+  type: TxType;
+  status: ScheduledOccurrenceDisplayStatus;
+  recordStatus?: ScheduledOccurrenceStatus;
+  daysUntilDue: number;
+  reminderDaysBefore: number;
+  ledgerName?: string;
+  ledgerArchived?: boolean;
+  currencyCode: string;
+  currencySymbol: string;
+  notificationId?: string;
+  confirmedTransactionId?: string;
+}
+
+export interface ConfirmOccurrenceOverride {
+  amount?: number;
+  date?: string;
+  ledgerId?: string;
+  category?: Category;
+  notes?: string;
+}
+
 export type BillOccurrenceStatus = 'paid' | 'missed';
 
 export type BillDisplayStatus = 'upcoming' | 'due-today' | BillOccurrenceStatus;
@@ -108,21 +169,7 @@ export interface BillOccurrenceRecord {
   notificationScheduledAt?: string;
 }
 
-export interface BillOccurrence {
-  id: string;
-  source: Transaction;
-  dueDate: string;
-  amount: number;
-  status: BillDisplayStatus;
-  manualStatus?: BillOccurrenceStatus;
-  daysUntilDue: number;
-  reminderDaysBefore: number;
-  ledgerName?: string;
-  ledgerArchived?: boolean;
-  currencyCode: string;
-  currencySymbol: string;
-  notificationId?: string;
-}
+export type BillOccurrence = ScheduledOccurrence;
 
 export type BillNotificationStatus = 'unknown' | 'granted' | 'denied' | 'error';
 

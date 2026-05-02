@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
+  Alert,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
@@ -12,10 +13,10 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { CalendarDays, CreditCard, X, Repeat } from 'lucide-react-native';
+import { CalendarDays, CreditCard, Pause, Play, X, Repeat } from 'lucide-react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { ALL_LEDGER_ID, useBudget } from '../../context/BudgetContext';
-import type { TxType, Category, Transaction, RecurringFrequency } from '../../types';
+import type { TxType, Category, Transaction, RecurringFrequency, RecurringSchedule } from '../../types';
 import { fonts, CATEGORIES, colorFor } from '../../theme';
 import { Field, AddCategorySheet } from './AddCategorySheet';
 import { DatePickerSheet } from './DatePickerSheet';
@@ -42,6 +43,8 @@ export function TransactionForm({ onClose, transaction }: TransactionFormProps) 
   const {
     addTransaction,
     updateTransaction,
+    pauseSchedule,
+    resumeSchedule,
     customCategories,
     addCustomCategory,
     ledgers,
@@ -83,6 +86,9 @@ export function TransactionForm({ onClose, transaction }: TransactionFormProps) 
   const [reminderDaysBefore, setReminderDaysBefore] = useState(
     String(transaction?.recurringSchedule?.reminderDaysBefore ?? 1),
   );
+  const [autoPost, setAutoPost] = useState(
+    (transaction?.recurringSchedule?.postMode ?? (transaction?.type === 'income' ? 'auto' : 'confirm')) === 'auto',
+  );
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [activeDatePicker, setActiveDatePicker] = useState<DatePickerTarget | null>(null);
   const skipInitialCategoryReset = useRef(Boolean(transaction));
@@ -95,6 +101,9 @@ export function TransactionForm({ onClose, transaction }: TransactionFormProps) 
       return;
     }
     setCategory(type === 'income' ? 'Salary' : 'Food');
+    if (!transaction) {
+      setAutoPost(type === 'income');
+    }
   }, [type]);
 
   useEffect(() => {
@@ -110,13 +119,16 @@ export function TransactionForm({ onClose, transaction }: TransactionFormProps) 
     if (!amount || !description.trim() || !targetLedgerId || Number.isNaN(n) || n <= 0) return;
     const interval = Math.max(1, Number(recurringInterval) || 1);
     const reminder = Math.max(0, Number(reminderDaysBefore) || 0);
-    const recurringSchedule = recurring
+    const recurringSchedule: RecurringSchedule | undefined = recurring
       ? {
           frequency: recurringFrequency,
           interval,
           startDate: recurringStartDate.trim() || date,
           endDate: recurringEndDate.trim() || undefined,
           reminderDaysBefore: reminder,
+          postMode: autoPost ? 'auto' : 'confirm',
+          paused: transaction?.recurringSchedule?.paused ?? false,
+          pausedAt: transaction?.recurringSchedule?.pausedAt,
         }
       : undefined;
     if (transaction) {
@@ -144,6 +156,32 @@ export function TransactionForm({ onClose, transaction }: TransactionFormProps) 
       });
     }
     onClose();
+  };
+
+  const schedulePaused = Boolean(transaction?.recurringSchedule?.paused);
+  const handlePauseResumeSchedule = () => {
+    if (!transaction?.id) return;
+    if (schedulePaused) {
+      resumeSchedule(transaction.id);
+      onClose();
+      return;
+    }
+
+    Alert.alert(
+      'Pause this schedule?',
+      'No new occurrences will be generated until you resume. Resuming starts from today without backfilling the pause gap.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Pause schedule',
+          style: 'destructive',
+          onPress: () => {
+            pauseSchedule(transaction.id);
+            onClose();
+          },
+        },
+      ],
+    );
   };
 
   const currentCategories = [
@@ -437,6 +475,42 @@ export function TransactionForm({ onClose, transaction }: TransactionFormProps) 
                   </Text>
                 </Pressable>
               </Field>
+
+              <View style={styles.recurringRow}>
+                <View style={styles.recurringLabelGroup}>
+                  <Repeat size={14} color={colors.stone500} />
+                  <View>
+                    <Text style={styles.recurringRowLabel}>Auto-post without confirming</Text>
+                    <Text style={styles.scheduleHint}>
+                      {autoPost ? 'Creates entries when due.' : 'Sends due dates to Bills first.'}
+                    </Text>
+                  </View>
+                </View>
+                <Switch
+                  value={autoPost}
+                  onValueChange={setAutoPost}
+                  trackColor={{ true: colors.rust, false: colors.chip }}
+                  thumbColor={colors.cream}
+                />
+              </View>
+
+              {isEditing && transaction?.recurringSchedule ? (
+                <Pressable onPress={handlePauseResumeSchedule} style={styles.pauseScheduleButton}>
+                  {schedulePaused ? (
+                    <Play size={14} color={colors.moss} />
+                  ) : (
+                    <Pause size={14} color={colors.stone600} />
+                  )}
+                  <Text
+                    style={[
+                      styles.pauseScheduleLabel,
+                      schedulePaused && { color: colors.moss },
+                    ]}
+                  >
+                    {schedulePaused ? 'Resume schedule' : 'Pause schedule'}
+                  </Text>
+                </Pressable>
+              ) : null}
             </View>
           ) : null}
         </ScrollView>
@@ -606,6 +680,12 @@ const createStyles = (colors: any) =>
       fontSize: 13,
       color: colors.stone600,
     },
+    scheduleHint: {
+      fontFamily: fonts.body,
+      fontSize: 11,
+      color: colors.stone500,
+      marginTop: 2,
+    },
     schedulePanel: {
       gap: 14,
       padding: 14,
@@ -621,6 +701,20 @@ const createStyles = (colors: any) =>
     scheduleGridItem: {
       flex: 1,
       minWidth: 0,
+    },
+    pauseScheduleButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      paddingVertical: 11,
+      borderRadius: 999,
+      backgroundColor: colors.chip,
+    },
+    pauseScheduleLabel: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: 12,
+      color: colors.stone600,
     },
     submit: {
       backgroundColor: colors.ink,

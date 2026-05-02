@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   StyleSheet,
   Text,
@@ -12,30 +13,46 @@ import {
   CheckCircle2,
   Clock,
   RotateCcw,
+  SkipForward,
   XCircle,
 } from 'lucide-react-native';
 import { useTheme } from '../context/ThemeContext';
 import { useBudget } from '../context/BudgetContext';
-import type { BillDisplayStatus, BillOccurrence } from '../types';
+import type { ConfirmOccurrenceOverride, ScheduledOccurrence } from '../types';
 import { Empty, Section } from '../components/ui/Layout';
+import { ConfirmOccurrenceSheet } from '../components/forms/ConfirmOccurrenceSheet';
+import { DatePickerSheet } from '../components/forms/DatePickerSheet';
 import { fonts } from '../theme';
 import { formatDisplayDate, getFrequencyLabel } from '../utils/recurring';
 
-type BillTab = 'due' | 'upcoming' | 'paid' | 'missed';
+type OccurrenceTab = 'due' | 'upcoming' | 'confirmed' | 'skipped' | 'postponed';
 
-function statusLabel(status: BillDisplayStatus, daysUntilDue: number) {
-  if (status === 'paid') return 'Paid';
-  if (status === 'missed') return 'Missed';
-  if (status === 'due-today') return 'Due today';
-  if (daysUntilDue === 1) return 'Tomorrow';
-  if (daysUntilDue > 1) return `In ${daysUntilDue} days`;
-  return 'Upcoming';
+function todayISO() {
+  const now = new Date();
+  return [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0'),
+  ].join('-');
 }
 
-function statusAccent(status: BillDisplayStatus, colors: any) {
-  if (status === 'paid') return colors.moss;
-  if (status === 'missed') return colors.clay;
-  if (status === 'due-today') return colors.rust;
+function statusLabel(occurrence: ScheduledOccurrence) {
+  if (occurrence.status === 'confirmed') return 'Confirmed';
+  if (occurrence.status === 'skipped') return 'Skipped';
+  if (occurrence.status === 'postponed') return 'Postponed';
+  if (occurrence.status === 'due-now') return 'Missed';
+  if (occurrence.status === 'due-today') return 'Due today';
+  if (occurrence.daysUntilDue === 1) return 'Tomorrow';
+  if (occurrence.daysUntilDue > 1) return `In ${occurrence.daysUntilDue} days`;
+  return 'Pending';
+}
+
+function statusAccent(occurrence: ScheduledOccurrence, colors: any) {
+  if (occurrence.status === 'confirmed') return colors.moss;
+  if (occurrence.status === 'skipped') return colors.stone500;
+  if (occurrence.status === 'postponed') return colors.rust;
+  if (occurrence.status === 'due-now') return colors.clay;
+  if (occurrence.status === 'due-today') return colors.rust;
   return colors.stone500;
 }
 
@@ -51,69 +68,82 @@ export function BillsScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const {
-    billOccurrences,
-    billNotificationStatus,
-    markBillPaid,
-    markBillMissed,
-    clearBillStatus,
-    requestBillNotificationPermission,
-    syncBillNotifications,
+    scheduledOccurrences,
+    scheduledNotificationStatus,
+    confirmOccurrence,
+    skipOccurrence,
+    postponeOccurrence,
+    clearOccurrenceStatus,
+    requestScheduledNotificationPermission,
+    syncScheduledNotifications,
     reportingCurrency,
     formatReportingMoney,
     convertAmountToReporting,
   } = useBudget();
-  const [tab, setTab] = useState<BillTab>('due');
+  const [tab, setTab] = useState<OccurrenceTab>('due');
   const [syncing, setSyncing] = useState(false);
   const [syncNote, setSyncNote] = useState('');
+  const [confirming, setConfirming] = useState<ScheduledOccurrence | null>(null);
+  const [postponing, setPostponing] = useState<ScheduledOccurrence | null>(null);
 
-  const upcomingOpenBills = useMemo(
+  const dueOccurrences = useMemo(
     () =>
-      billOccurrences.filter(
-        (bill) => bill.status !== 'paid' && bill.status !== 'missed' && bill.daysUntilDue >= 0,
+      scheduledOccurrences.filter(
+        (occurrence) =>
+          occurrence.status === 'due-now' ||
+          occurrence.status === 'due-today' ||
+          (occurrence.recordStatus !== 'confirmed' &&
+            occurrence.recordStatus !== 'skipped' &&
+            occurrence.daysUntilDue >= 0 &&
+            occurrence.daysUntilDue <= 7),
       ),
-    [billOccurrences],
+    [scheduledOccurrences],
   );
 
-  const dueSoonBills = useMemo(
+  const upcomingOccurrences = useMemo(
     () =>
-      billOccurrences.filter(
-        (bill) =>
-          bill.status !== 'paid' &&
-          (bill.status === 'missed' || bill.daysUntilDue <= 7),
+      scheduledOccurrences.filter(
+        (occurrence) =>
+          occurrence.status === 'upcoming' && occurrence.daysUntilDue > 7,
       ),
-    [billOccurrences],
+    [scheduledOccurrences],
   );
 
-  const visibleBills = useMemo(() => {
-    if (tab === 'due') return dueSoonBills;
-    if (tab === 'upcoming') return upcomingOpenBills;
-    return billOccurrences.filter((bill) => bill.status === tab);
-  }, [billOccurrences, dueSoonBills, tab, upcomingOpenBills]);
+  const visibleOccurrences = useMemo(() => {
+    if (tab === 'due') return dueOccurrences;
+    if (tab === 'upcoming') return upcomingOccurrences;
+    return scheduledOccurrences.filter((occurrence) => occurrence.recordStatus === tab);
+  }, [dueOccurrences, scheduledOccurrences, tab, upcomingOccurrences]);
 
-  const dueSoonTotal = dueSoonBills.reduce((sum, bill) => {
-    return sum + convertAmountToReporting(bill.amount, bill.currencyCode).amount;
+  const dueSoonTotal = dueOccurrences.reduce((sum, occurrence) => {
+    const amount = convertAmountToReporting(occurrence.amount, occurrence.currencyCode).amount;
+    return sum + (occurrence.type === 'income' ? amount : -amount);
   }, 0);
 
-  const missedCount = billOccurrences.filter((bill) => bill.status === 'missed').length;
-  const paidCount = billOccurrences.filter((bill) => bill.status === 'paid').length;
-  const openCount = upcomingOpenBills.length;
+  const confirmedCount = scheduledOccurrences.filter((item) => item.recordStatus === 'confirmed').length;
+  const skippedCount = scheduledOccurrences.filter((item) => item.recordStatus === 'skipped').length;
+  const postponedCount = scheduledOccurrences.filter((item) => item.recordStatus === 'postponed').length;
+  const openCount = scheduledOccurrences.filter(
+    (item) => item.recordStatus !== 'confirmed' && item.recordStatus !== 'skipped',
+  ).length;
 
-  const tabs: { id: BillTab; label: string; count: number }[] = [
-    { id: 'due', label: 'Due soon', count: dueSoonBills.length },
-    { id: 'upcoming', label: 'Upcoming', count: openCount },
-    { id: 'paid', label: 'Paid', count: paidCount },
-    { id: 'missed', label: 'Missed', count: missedCount },
+  const tabs: { id: OccurrenceTab; label: string; count: number }[] = [
+    { id: 'due', label: 'Due', count: dueOccurrences.length },
+    { id: 'upcoming', label: 'Upcoming', count: upcomingOccurrences.length },
+    { id: 'confirmed', label: 'Confirmed', count: confirmedCount },
+    { id: 'skipped', label: 'Skipped', count: skippedCount },
+    { id: 'postponed', label: 'Postponed', count: postponedCount },
   ];
 
   const handleReminderPress = async () => {
     setSyncing(true);
     setSyncNote('');
     try {
-      if (billNotificationStatus !== 'granted') {
-        const nextStatus = await requestBillNotificationPermission();
+      if (scheduledNotificationStatus !== 'granted') {
+        const nextStatus = await requestScheduledNotificationPermission();
         setSyncNote(nextStatus === 'granted' ? 'Reminders enabled.' : 'Reminders not enabled.');
       } else {
-        const result = await syncBillNotifications();
+        const result = await syncScheduledNotifications();
         setSyncNote(`${result.scheduled} reminder${result.scheduled === 1 ? '' : 's'} scheduled.`);
       }
     } finally {
@@ -121,13 +151,33 @@ export function BillsScreen() {
     }
   };
 
+  const handleSkip = (occurrence: ScheduledOccurrence) => {
+    Alert.alert(
+      'Skip this occurrence?',
+      `${occurrence.source.description} will stay out of your ledger for ${formatDisplayDate(occurrence.effectiveDueDate)}.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Skip', style: 'destructive', onPress: () => skipOccurrence(occurrence.id) },
+      ],
+    );
+  };
+
+  const handleConfirm = (override: ConfirmOccurrenceOverride) => {
+    if (!confirming) return;
+    confirmOccurrence(confirming.id, override);
+    setConfirming(null);
+  };
+
   return (
     <View style={{ gap: 32 }}>
       <View style={styles.hero}>
         <View style={styles.heroHead}>
           <View>
-            <Text style={styles.heroEyebrow}>Bills due soon</Text>
-            <Text style={styles.heroTitle}>{formatReportingMoney(dueSoonTotal)}</Text>
+            <Text style={styles.heroEyebrow}>Due soon net</Text>
+            <Text style={styles.heroTitle}>
+              {dueSoonTotal < 0 ? '-' : ''}
+              {formatReportingMoney(Math.abs(dueSoonTotal))}
+            </Text>
           </View>
           <View style={styles.heroIcon}>
             <CalendarDays size={22} color={colors.rust} />
@@ -135,8 +185,8 @@ export function BillsScreen() {
         </View>
         <View style={styles.heroMetrics}>
           <Metric label="Open" value={String(openCount)} />
-          <Metric label="Paid" value={String(paidCount)} />
-          <Metric label="Missed" value={String(missedCount)} tone={missedCount > 0 ? colors.clay : undefined} />
+          <Metric label="Confirmed" value={String(confirmedCount)} />
+          <Metric label="Skipped" value={String(skippedCount)} />
         </View>
       </View>
 
@@ -147,32 +197,35 @@ export function BillsScreen() {
           </View>
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={styles.reminderTitle}>
-              Reminders {billNotificationStatus === 'granted' ? 'enabled' : 'off'}
+              Reminders {scheduledNotificationStatus === 'granted' ? 'enabled' : 'off'}
             </Text>
             <Text style={styles.reminderMeta}>
-              {billNotificationStatus === 'granted'
-                ? `Using each bill's reminder days`
-                : 'Enable local bill reminders'}
+              {scheduledNotificationStatus === 'granted'
+                ? 'Local reminders for income and expenses'
+                : 'Enable local schedule reminders'}
             </Text>
             {syncNote ? <Text style={styles.syncNote}>{syncNote}</Text> : null}
           </View>
         </View>
         <Pressable
           onPress={handleReminderPress}
-          disabled={syncing || billOccurrences.length === 0}
-          style={[styles.reminderButton, (syncing || billOccurrences.length === 0) && { opacity: 0.45 }]}
+          disabled={syncing || scheduledOccurrences.length === 0}
+          style={[
+            styles.reminderButton,
+            (syncing || scheduledOccurrences.length === 0) && { opacity: 0.45 },
+          ]}
         >
           {syncing ? (
             <ActivityIndicator size="small" color={colors.paper} />
           ) : (
             <Text style={styles.reminderButtonLabel}>
-              {billNotificationStatus === 'granted' ? 'Sync' : 'Enable'}
+              {scheduledNotificationStatus === 'granted' ? 'Sync' : 'Enable'}
             </Text>
           )}
         </Pressable>
       </View>
 
-      <Section title="Commitments" subtitle={`${visibleBills.length} shown`}>
+      <Section title="Commitments" subtitle={`${visibleOccurrences.length} shown`}>
         <View style={styles.tabs}>
           {tabs.map((item) => {
             const active = tab === item.id;
@@ -193,125 +246,167 @@ export function BillsScreen() {
           })}
         </View>
 
-        {visibleBills.length === 0 ? (
-          <Empty msg="No bill commitments in this view." />
+        {visibleOccurrences.length === 0 ? (
+          <Empty msg="No scheduled commitments in this view." />
         ) : (
           <View style={{ gap: 10 }}>
-            {visibleBills.map((bill) => (
-              <BillCard
-                key={bill.id}
-                bill={bill}
-                reportingCurrencyCode={reportingCurrency.code}
-                amount={formatReportingMoney(
-                  convertAmountToReporting(bill.amount, bill.currencyCode).amount,
-                )}
-                onPaid={() => markBillPaid(bill.id)}
-                onMissed={() => markBillMissed(bill.id)}
-                onUndo={() => clearBillStatus(bill.id)}
-              />
-            ))}
+            {visibleOccurrences.map((occurrence) => {
+              const reportingAmount = convertAmountToReporting(
+                occurrence.amount,
+                occurrence.currencyCode,
+              ).amount;
+              return (
+                <OccurrenceCard
+                  key={occurrence.id}
+                  occurrence={occurrence}
+                  reportingCurrencyCode={reportingCurrency.code}
+                  amount={formatReportingMoney(reportingAmount)}
+                  onConfirm={() => setConfirming(occurrence)}
+                  onSkip={() => handleSkip(occurrence)}
+                  onPostpone={() => setPostponing(occurrence)}
+                  onUndo={() => clearOccurrenceStatus(occurrence.id)}
+                />
+              );
+            })}
           </View>
         )}
       </Section>
+
+      <ConfirmOccurrenceSheet
+        visible={Boolean(confirming)}
+        occurrence={confirming}
+        onConfirm={handleConfirm}
+        onClose={() => setConfirming(null)}
+      />
+
+      <DatePickerSheet
+        visible={Boolean(postponing)}
+        title="Postpone occurrence"
+        value={postponing?.effectiveDueDate ?? todayISO()}
+        min={todayISO()}
+        onSelect={(iso) => {
+          if (postponing) postponeOccurrence(postponing.id, iso);
+          setPostponing(null);
+        }}
+        onClose={() => setPostponing(null)}
+      />
     </View>
   );
 }
 
-function Metric({ label, value, tone }: { label: string; value: string; tone?: string }) {
+function Metric({ label, value }: { label: string; value: string }) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={styles.metric}>
       <Text style={styles.metricLabel}>{label}</Text>
-      <Text style={[styles.metricValue, tone ? { color: tone } : null]}>{value}</Text>
+      <Text style={styles.metricValue}>{value}</Text>
     </View>
   );
 }
 
-function BillCard({
-  bill,
+function OccurrenceCard({
+  occurrence,
   amount,
   reportingCurrencyCode,
-  onPaid,
-  onMissed,
+  onConfirm,
+  onSkip,
+  onPostpone,
   onUndo,
 }: {
-  bill: BillOccurrence;
+  occurrence: ScheduledOccurrence;
   amount: string;
   reportingCurrencyCode: string;
-  onPaid: () => void;
-  onMissed: () => void;
+  onConfirm: () => void;
+  onSkip: () => void;
+  onPostpone: () => void;
   onUndo: () => void;
 }) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const accent = statusAccent(bill.status, colors);
-  const closed = bill.status === 'paid' || Boolean(bill.manualStatus);
-  const showMissedAction = bill.status !== 'missed' && bill.daysUntilDue <= 0;
+  const accent = statusAccent(occurrence, colors);
+  const canAct =
+    occurrence.recordStatus !== 'confirmed' &&
+    occurrence.recordStatus !== 'skipped';
+  const canUndo =
+    occurrence.recordStatus === 'skipped' ||
+    occurrence.recordStatus === 'postponed';
 
   return (
-    <View style={styles.billCard}>
+    <View style={styles.occurrenceCard}>
       <View style={styles.datePill}>
-        <Text style={styles.dateMonth}>{formatMonth(bill.dueDate)}</Text>
-        <Text style={styles.dateDay}>{formatDay(bill.dueDate)}</Text>
+        <Text style={styles.dateMonth}>{formatMonth(occurrence.effectiveDueDate)}</Text>
+        <Text style={styles.dateDay}>{formatDay(occurrence.effectiveDueDate)}</Text>
       </View>
 
       <View style={{ flex: 1, minWidth: 0, gap: 8 }}>
-        <View style={styles.billHead}>
+        <View style={styles.occurrenceHead}>
           <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={styles.billTitle} numberOfLines={2}>
-              {bill.source.description}
+            <Text style={styles.occurrenceTitle} numberOfLines={2}>
+              {occurrence.source.description}
             </Text>
-            <Text style={styles.billMeta} numberOfLines={2}>
-              {bill.source.category} / {bill.ledgerName ?? 'Account missing'} /{' '}
-              {getFrequencyLabel(bill.source.recurringSchedule)}
+            <Text style={styles.occurrenceMeta} numberOfLines={2}>
+              {occurrence.source.category} / {occurrence.ledgerName ?? 'Account missing'} /{' '}
+              {getFrequencyLabel(occurrence.source.recurringSchedule)}
             </Text>
           </View>
-          <Text style={styles.billAmount}>
+          <Text
+            style={[
+              styles.occurrenceAmount,
+              { color: occurrence.type === 'income' ? colors.moss : colors.clay },
+            ]}
+          >
+            {occurrence.type === 'income' ? '+' : '-'}
             {amount}
           </Text>
         </View>
 
-        <View style={styles.billStatusRow}>
+        <View style={styles.statusRow}>
           <View style={[styles.statusPill, { borderColor: accent }]}>
-            {bill.status === 'paid' ? (
+            {occurrence.status === 'confirmed' ? (
               <CheckCircle2 size={12} color={accent} />
-            ) : bill.status === 'missed' ? (
+            ) : occurrence.status === 'skipped' ? (
+              <SkipForward size={12} color={accent} />
+            ) : occurrence.status === 'due-now' ? (
               <XCircle size={12} color={accent} />
             ) : (
               <Clock size={12} color={accent} />
             )}
             <Text style={[styles.statusLabel, { color: accent }]}>
-              {statusLabel(bill.status, bill.daysUntilDue)}
+              {statusLabel(occurrence)}
             </Text>
           </View>
-          <Text style={styles.billDueText}>
-            {formatDisplayDate(bill.dueDate)} / {reportingCurrencyCode}
+          <Text style={styles.dueText}>
+            {formatDisplayDate(occurrence.effectiveDueDate)} / {reportingCurrencyCode}
           </Text>
         </View>
 
-        {bill.ledgerArchived ? (
+        {occurrence.ledgerArchived ? (
           <Text style={styles.warningText}>Linked account archived.</Text>
         ) : null}
 
         <View style={styles.actions}>
-          {closed ? (
+          {canUndo ? (
             <Pressable onPress={onUndo} style={styles.secondaryAction}>
               <RotateCcw size={13} color={colors.stone600} />
               <Text style={styles.secondaryActionLabel}>Undo</Text>
             </Pressable>
           ) : null}
-          {bill.status !== 'paid' ? (
-            <Pressable onPress={onPaid} style={[styles.actionButton, { backgroundColor: colors.moss }]}>
-              <CheckCircle2 size={13} color={colors.paper} />
-              <Text style={styles.actionLabel}>Paid</Text>
-            </Pressable>
-          ) : null}
-          {showMissedAction ? (
-            <Pressable onPress={onMissed} style={[styles.actionButton, { backgroundColor: colors.clay }]}>
-              <XCircle size={13} color={colors.paper} />
-              <Text style={styles.actionLabel}>Missed</Text>
-            </Pressable>
+          {canAct ? (
+            <>
+              <Pressable onPress={onConfirm} style={[styles.actionButton, { backgroundColor: colors.moss }]}>
+                <CheckCircle2 size={13} color={colors.paper} />
+                <Text style={styles.actionLabel}>Confirm</Text>
+              </Pressable>
+              <Pressable onPress={onPostpone} style={styles.secondaryAction}>
+                <CalendarDays size={13} color={colors.stone600} />
+                <Text style={styles.secondaryActionLabel}>Postpone</Text>
+              </Pressable>
+              <Pressable onPress={onSkip} style={styles.secondaryAction}>
+                <SkipForward size={13} color={colors.stone600} />
+                <Text style={styles.secondaryActionLabel}>Skip</Text>
+              </Pressable>
+            </>
           ) : null}
         </View>
       </View>
@@ -461,7 +556,7 @@ const createStyles = (colors: any) =>
       fontSize: 11,
       color: colors.stone500,
     },
-    billCard: {
+    occurrenceCard: {
       flexDirection: 'row',
       alignItems: 'flex-start',
       gap: 12,
@@ -493,33 +588,32 @@ const createStyles = (colors: any) =>
       color: colors.ink,
       marginTop: 2,
     },
-    billHead: {
+    occurrenceHead: {
       flexDirection: 'row',
       alignItems: 'flex-start',
       justifyContent: 'space-between',
       gap: 10,
     },
-    billTitle: {
+    occurrenceTitle: {
       fontFamily: fonts.displayMedium,
       fontSize: 16,
       color: colors.ink,
       lineHeight: 21,
     },
-    billMeta: {
+    occurrenceMeta: {
       fontFamily: fonts.body,
       fontSize: 11,
       color: colors.stone500,
       lineHeight: 16,
       marginTop: 2,
     },
-    billAmount: {
+    occurrenceAmount: {
       fontFamily: fonts.displayLight,
       fontSize: 17,
-      color: colors.clay,
       textAlign: 'right',
       maxWidth: 110,
     },
-    billStatusRow: {
+    statusRow: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 8,
@@ -540,7 +634,7 @@ const createStyles = (colors: any) =>
       letterSpacing: 0.6,
       textTransform: 'uppercase',
     },
-    billDueText: {
+    dueText: {
       fontFamily: fonts.body,
       fontSize: 11,
       color: colors.stone500,
