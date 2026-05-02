@@ -12,18 +12,27 @@ import {
   CalendarDays,
   CheckCircle2,
   Clock,
+  Paperclip,
   RotateCcw,
+  ShieldCheck,
   SkipForward,
   XCircle,
 } from 'lucide-react-native';
 import { useTheme } from '../context/ThemeContext';
 import { useBudget } from '../context/BudgetContext';
-import type { ConfirmOccurrenceOverride, ScheduledOccurrence } from '../types';
+import type {
+  ConfirmOccurrenceOverride,
+  PaymentEvidence,
+  PaymentEvidenceDraft,
+  ScheduledOccurrence,
+} from '../types';
 import { Empty, Section } from '../components/ui/Layout';
 import { ConfirmOccurrenceSheet } from '../components/forms/ConfirmOccurrenceSheet';
 import { DatePickerSheet } from '../components/forms/DatePickerSheet';
+import { PaymentEvidenceSheet } from '../components/forms/PaymentEvidenceSheet';
 import { fonts } from '../theme';
 import { formatDisplayDate, getFrequencyLabel } from '../utils/recurring';
+import { evidenceConfidenceLabel } from '../utils/paymentEvidence';
 
 type OccurrenceTab = 'due' | 'upcoming' | 'confirmed' | 'skipped' | 'postponed';
 
@@ -74,6 +83,9 @@ export function BillsScreen() {
     skipOccurrence,
     postponeOccurrence,
     clearOccurrenceStatus,
+    evidenceForOccurrence,
+    addPaymentEvidence,
+    removePaymentEvidence,
     requestScheduledNotificationPermission,
     syncScheduledNotifications,
     reportingCurrency,
@@ -85,6 +97,7 @@ export function BillsScreen() {
   const [syncNote, setSyncNote] = useState('');
   const [confirming, setConfirming] = useState<ScheduledOccurrence | null>(null);
   const [postponing, setPostponing] = useState<ScheduledOccurrence | null>(null);
+  const [proofing, setProofing] = useState<ScheduledOccurrence | null>(null);
 
   const dueOccurrences = useMemo(
     () =>
@@ -166,6 +179,11 @@ export function BillsScreen() {
     if (!confirming) return;
     confirmOccurrence(confirming.id, override);
     setConfirming(null);
+  };
+
+  const handleAddEvidence = (draft: PaymentEvidenceDraft) => {
+    if (!proofing) return;
+    addPaymentEvidence(proofing.id, draft);
   };
 
   return (
@@ -261,9 +279,11 @@ export function BillsScreen() {
                   occurrence={occurrence}
                   reportingCurrencyCode={reportingCurrency.code}
                   amount={formatReportingMoney(reportingAmount)}
+                  evidence={evidenceForOccurrence(occurrence.id)}
                   onConfirm={() => setConfirming(occurrence)}
                   onSkip={() => handleSkip(occurrence)}
                   onPostpone={() => setPostponing(occurrence)}
+                  onProof={() => setProofing(occurrence)}
                   onUndo={() => clearOccurrenceStatus(occurrence.id)}
                 />
               );
@@ -290,6 +310,15 @@ export function BillsScreen() {
         }}
         onClose={() => setPostponing(null)}
       />
+
+      <PaymentEvidenceSheet
+        visible={Boolean(proofing)}
+        occurrence={proofing}
+        evidence={proofing ? evidenceForOccurrence(proofing.id) : []}
+        onAdd={handleAddEvidence}
+        onRemove={removePaymentEvidence}
+        onClose={() => setProofing(null)}
+      />
     </View>
   );
 }
@@ -309,17 +338,21 @@ function OccurrenceCard({
   occurrence,
   amount,
   reportingCurrencyCode,
+  evidence,
   onConfirm,
   onSkip,
   onPostpone,
+  onProof,
   onUndo,
 }: {
   occurrence: ScheduledOccurrence;
   amount: string;
   reportingCurrencyCode: string;
+  evidence: PaymentEvidence[];
   onConfirm: () => void;
   onSkip: () => void;
   onPostpone: () => void;
+  onProof: () => void;
   onUndo: () => void;
 }) {
   const { colors } = useTheme();
@@ -331,6 +364,10 @@ function OccurrenceCard({
   const canUndo =
     occurrence.recordStatus === 'skipped' ||
     occurrence.recordStatus === 'postponed';
+  const strongestEvidence = evidence.find((item) => item.confidence === 'verified') ??
+    evidence.find((item) => item.confidence === 'matched') ??
+    evidence.find((item) => item.confidence === 'parsed') ??
+    evidence[0];
 
   return (
     <View style={styles.occurrenceCard}>
@@ -379,6 +416,32 @@ function OccurrenceCard({
           <Text style={styles.dueText}>
             {formatDisplayDate(occurrence.effectiveDueDate)} / {reportingCurrencyCode}
           </Text>
+          <Pressable
+            onPress={onProof}
+            style={[
+              styles.proofPill,
+              evidence.length > 0 && {
+                borderColor: colors.moss,
+                backgroundColor: colors.paper,
+              },
+            ]}
+          >
+            {evidence.length > 0 ? (
+              <ShieldCheck size={12} color={colors.moss} />
+            ) : (
+              <Paperclip size={12} color={colors.stone500} />
+            )}
+            <Text
+              style={[
+                styles.proofLabel,
+                evidence.length > 0 && { color: colors.moss },
+              ]}
+            >
+              {evidence.length > 0
+                ? `${evidence.length} proof${evidence.length === 1 ? '' : 's'} / ${evidenceConfidenceLabel(strongestEvidence)}`
+                : 'No proof'}
+            </Text>
+          </Pressable>
         </View>
 
         {occurrence.ledgerArchived ? (
@@ -398,6 +461,10 @@ function OccurrenceCard({
                 <CheckCircle2 size={13} color={colors.paper} />
                 <Text style={styles.actionLabel}>Confirm</Text>
               </Pressable>
+              <Pressable onPress={onProof} style={styles.secondaryAction}>
+                <Paperclip size={13} color={colors.stone600} />
+                <Text style={styles.secondaryActionLabel}>Proof</Text>
+              </Pressable>
               <Pressable onPress={onPostpone} style={styles.secondaryAction}>
                 <CalendarDays size={13} color={colors.stone600} />
                 <Text style={styles.secondaryActionLabel}>Postpone</Text>
@@ -407,6 +474,12 @@ function OccurrenceCard({
                 <Text style={styles.secondaryActionLabel}>Skip</Text>
               </Pressable>
             </>
+          ) : null}
+          {!canAct && !canUndo ? (
+            <Pressable onPress={onProof} style={styles.secondaryAction}>
+              <Paperclip size={13} color={colors.stone600} />
+              <Text style={styles.secondaryActionLabel}>Proof</Text>
+            </Pressable>
           ) : null}
         </View>
       </View>
@@ -637,6 +710,23 @@ const createStyles = (colors: any) =>
     dueText: {
       fontFamily: fonts.body,
       fontSize: 11,
+      color: colors.stone500,
+    },
+    proofPill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      borderWidth: 1,
+      borderColor: colors.borderSoft,
+      borderRadius: 999,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      backgroundColor: colors.chip,
+      maxWidth: '100%',
+    },
+    proofLabel: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: 10,
       color: colors.stone500,
     },
     warningText: {

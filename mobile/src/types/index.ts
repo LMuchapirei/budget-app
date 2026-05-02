@@ -147,12 +147,45 @@ export interface ScheduledOccurrence {
   confirmedTransactionId?: string;
 }
 
+export type PaymentEvidenceType =
+  | 'photo'
+  | 'sms_text'
+  | 'email_text'
+  | 'manual_note'
+  | 'bank_match';
+
+export type PaymentEvidenceConfidence = 'manual' | 'parsed' | 'matched' | 'verified';
+
+export interface PaymentEvidenceDraft {
+  type: PaymentEvidenceType;
+  amount?: number;
+  currencyCode?: string;
+  paidAt?: string;
+  merchant?: string;
+  reference?: string;
+  rawText?: string;
+  attachmentUri?: string;
+  attachmentName?: string;
+  providerTransactionId?: string;
+  note?: string;
+  confidence?: PaymentEvidenceConfidence;
+}
+
+export interface PaymentEvidence extends PaymentEvidenceDraft {
+  id: string;
+  occurrenceId: string;
+  confirmedTransactionId?: string;
+  createdAt: string;
+  confidence: PaymentEvidenceConfidence;
+}
+
 export interface ConfirmOccurrenceOverride {
   amount?: number;
   date?: string;
   ledgerId?: string;
   category?: Category;
   notes?: string;
+  evidence?: PaymentEvidenceDraft[];
 }
 
 export type BillOccurrenceStatus = 'paid' | 'missed';

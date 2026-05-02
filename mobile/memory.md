@@ -18,7 +18,7 @@ Last updated: 2026-05-02
 - Reports tab with spending by category and monthly comparison.
 - Projections tab based on recurring schedules.
 - Recurring schedule engine for daily, weekly, monthly, and yearly schedules.
-- Dashboard monthly budgets, linked-ledger savings goals, and a Bills tab for recurring income/expense commitments.
+- Dashboard monthly budgets, linked-ledger savings goals, and a Bills tab for recurring income/expense commitments with optional payment proof.
 - Settings tab with theme, app lock, currency symbol, and clear data.
 
 ## Transaction Features
@@ -89,6 +89,7 @@ Last updated: 2026-05-02
 - `src/screens/DashboardScreen.tsx`: Ledger tab UI, account selector, add account sheet, cash flow, recent entries.
 - `src/screens/BillsScreen.tsx`: scheduled commitments tracker with due, upcoming, confirmed, skipped, and postponed views.
 - `src/components/forms/ConfirmOccurrenceSheet.tsx`: confirm-before-post sheet for recurring occurrence amount/date/account overrides.
+- `src/components/forms/PaymentEvidenceSheet.tsx`: add/view/remove bill payment proof from a scheduled occurrence.
 - `src/components/forms/TransactionForm.tsx`: add/edit transaction sheet.
 - `src/components/forms/DatePickerSheet.tsx`: reusable calendar picker for single date fields.
 - `src/components/forms/LedgerSheet.tsx`: add/edit account sheet with archive, set-default, and delete-with-reassignment.
@@ -97,7 +98,9 @@ Last updated: 2026-05-02
 - `src/components/ui/TxRow.tsx`: transaction row gestures, detail sheet, audit trail.
 - `src/charts/AreaChart.tsx`: cash flow chart rendering.
 - `src/utils/recurring.ts`: recurring schedule engine, occurrence generation, due dates, monthly impact estimates.
+- `src/utils/paymentEvidence.ts`: local parsing and labels for pasted SMS/email/reference evidence.
 - `src/services/scheduledNotifications.ts`: local schedule reminder permission, scheduling, and cancellation through Expo Notifications.
+- `src/services/paymentEvidenceFiles.ts`: stores selected proof photos in app document storage and removes them when evidence is deleted.
 - `src/services/billNotifications.ts`: deprecated aliases for the older bill reminder function names.
 
 ## Known Follow-Ups
@@ -151,8 +154,14 @@ Last updated: 2026-05-02
   - The Bills tab derives commitments from recurring income and expense transactions.
   - Bills show due, upcoming, confirmed, skipped, and postponed filters.
   - Each occurrence can be confirmed, skipped, postponed, or undone when applicable.
+  - Occurrences can carry payment evidence: receipt/payment photo, pasted SMS alert, pasted email alert, or manual reference/note.
+  - The confirm sheet can attach proof before posting; the Bills card can open a proof sheet after posting.
+  - Pasted proof is parsed locally for amount, date, currency, and reference confidence.
+  - Proof photos use `expo-image-picker` and are copied into app document storage through `expo-file-system`.
+  - Bank/wallet transaction matching is modeled as a future `bank_match` evidence type but is not integrated yet.
   - Local reminders use `expo-notifications` and the recurring schedule's reminder lead days.
   - Occurrence status is stored separately from transactions in `budget:scheduled-occurrences:v2`.
+  - Payment evidence is stored separately from transactions in `budget:payment-evidence:v1`.
   - `app.json` registers the `expo-notifications` plugin so EAS / dev builds get correct iOS prompts and Android channels.
   - Notifications and scheduled records are pruned when the source recurring transaction is deleted, has pending schedule records refreshed, or when `clearAllData` runs.
   - Schedule notifications auto-sync once on app load when permission is already granted.

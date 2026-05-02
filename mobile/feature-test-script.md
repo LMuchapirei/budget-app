@@ -18,6 +18,7 @@ This document is the living test script for feature work in the mobile budget ap
 | Date picker UX | In progress | Transaction form, recurring schedules, goal deadlines | Shared calendar picker |
 | Bills & subscriptions tracker | In progress | Bills tab, confirmations, skips, local reminders | Wave 2 #3 |
 | Recurring engine controls | In progress | Confirm inbox, skip, postpone, pause/resume, auto-post | Wave 2 #4 |
+| Bill payment evidence | In progress | Receipt photo, pasted alert, reference proof | Bills proof layer |
 
 ## Monthly Category Budgets
 
@@ -404,6 +405,80 @@ Expected result:
 - Occurrence statuses are stored separately from transactions in `scheduled-occurrences:v2`.
 - Confirm posts a real transaction; skip/postpone stay in the schedule layer.
 - Local notification reminders are wired through `expo-notifications`.
+
+## Bill Payment Evidence
+
+### What This Feature Does
+
+Bill occurrences can carry proof that explains why an item was marked paid. Proof can be attached while confirming a bill or later from the bill card. Current proof types are receipt/payment photo, pasted SMS alert, pasted email alert, and manual reference/note. Photos are copied into app document storage so they are not left in the picker cache.
+
+### Setup
+
+1. Create a recurring expense.
+2. Let it appear in the `Bills` tab.
+3. Open `Due` and tap `Confirm`.
+
+### Test Case 1: Confirm With Pasted SMS Alert
+
+1. In the confirm sheet, paste a bank SMS alert into `Payment proof`.
+2. Add a reference if the pasted text does not include one.
+3. Tap `Attach`.
+4. Tap `Post with proof`.
+
+Expected result:
+
+- The occurrence is confirmed.
+- A transaction is created.
+- The bill card shows a proof pill with a count and confidence label.
+- Opening `Proof` shows the pasted text evidence.
+
+### Test Case 2: Confirm With Photo Proof
+
+1. In the confirm sheet, tap `Photo`.
+2. Grant camera permission if prompted.
+3. Take a receipt/payment confirmation photo.
+4. Tap `Post with proof`.
+
+Expected result:
+
+- The photo appears in the proof list before posting.
+- After posting, the confirmed bill still shows the proof count.
+- Opening `Proof` shows a thumbnail.
+
+### Test Case 3: Add Proof After Confirmation
+
+1. Confirm a bill without proof.
+2. Open the `Confirmed` tab.
+3. Tap `Proof`.
+4. Add a pasted email alert or reference.
+
+Expected result:
+
+- The proof is saved against the occurrence.
+- The card updates from `No proof` to a proof count.
+
+### Test Case 4: Remove Proof
+
+1. Open the `Proof` sheet for a bill with proof.
+2. Tap the trash action on one proof row.
+
+Expected result:
+
+- The proof row disappears.
+- If it was a photo, the stored attachment file is removed from app storage.
+
+### Trial Log
+
+| Date | Tester | Build/Branch | Scenario | Result | Follow-Up |
+| --- | --- | --- | --- | --- | --- |
+| 2026-05-02 | Codex | Working tree | Bill evidence implementation smoke test | `tsc --noEmit` passed | Manual camera/photo picker pass still needed |
+
+### Evolution Notes
+
+- Evidence is stored separately from transactions under `budget:payment-evidence:v1`.
+- Evidence links to the scheduled occurrence id, with optional `confirmedTransactionId` when attached during confirmation.
+- Pasted SMS/email text is parsed locally for amount, reference, date, currency, and a confidence label.
+- Bank/wallet matching is intentionally not live yet; the `bank_match` evidence type is reserved for later integrations.
 
 ## Recurring Engine Controls
 

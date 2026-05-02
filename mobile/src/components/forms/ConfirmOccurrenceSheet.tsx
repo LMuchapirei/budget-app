@@ -1,22 +1,32 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
+  Image,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
-import { CalendarDays, X } from 'lucide-react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { CalendarDays, Camera, Clipboard, ImagePlus, Mail, Trash2, X } from 'lucide-react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { useBudget } from '../../context/BudgetContext';
-import type { ConfirmOccurrenceOverride, ScheduledOccurrence } from '../../types';
+import type { ConfirmOccurrenceOverride, PaymentEvidenceDraft, ScheduledOccurrence } from '../../types';
+import { deleteEvidenceFile, persistEvidenceImage } from '../../services/paymentEvidenceFiles';
 import { fonts } from '../../theme';
 import { Field } from './AddCategorySheet';
 import { DatePickerSheet } from './DatePickerSheet';
+import {
+  parsePaymentEvidenceText,
+  summarizeEvidence,
+} from '../../utils/paymentEvidence';
 
 interface ConfirmOccurrenceSheetProps {
   visible: boolean;
@@ -49,6 +59,11 @@ export function ConfirmOccurrenceSheet({
   const [ledgerId, setLedgerId] = useState<string | undefined>();
   const [category, setCategory] = useState('');
   const [notes, setNotes] = useState('');
+  const [proofTextType, setProofTextType] = useState<'sms_text' | 'email_text'>('sms_text');
+  const [proofText, setProofText] = useState('');
+  const [proofReference, setProofReference] = useState('');
+  const [evidenceDrafts, setEvidenceDrafts] = useState<PaymentEvidenceDraft[]>([]);
+  const [savingProof, setSavingProof] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
 
   const selectableLedgers = useMemo(() => {
@@ -69,6 +84,11 @@ export function ConfirmOccurrenceSheet({
     setLedgerId(occurrence.source.ledgerId);
     setCategory(occurrence.source.category);
     setNotes('');
+    setProofTextType('sms_text');
+    setProofText('');
+    setProofReference('');
+    setEvidenceDrafts([]);
+    setSavingProof(false);
     setShowDatePicker(false);
   }, [occurrence, visible]);
 
@@ -91,27 +111,104 @@ export function ConfirmOccurrenceSheet({
       ledgerId,
       category: category.trim(),
       notes: notes.trim() || undefined,
+      evidence: evidenceDrafts,
     });
   };
 
+  const closeWithoutSaving = () => {
+    evidenceDrafts.forEach((draft) => {
+      if (draft.attachmentUri) deleteEvidenceFile(draft.attachmentUri).catch(console.error);
+    });
+    onClose();
+  };
+
+  const addTextEvidence = () => {
+    if (!occurrence || (!proofText.trim() && !proofReference.trim())) return;
+    const parsed = proofText.trim()
+      ? parsePaymentEvidenceText(proofText, occurrence.currencyCode)
+      : {};
+    setEvidenceDrafts([
+      {
+        ...parsed,
+        type: proofTextType,
+        rawText: proofText.trim() || undefined,
+        reference: proofReference.trim() || parsed.reference,
+        currencyCode: parsed.currencyCode ?? occurrence.currencyCode,
+        confidence: parsed.confidence ?? 'manual',
+      },
+      ...evidenceDrafts,
+    ]);
+    setProofText('');
+    setProofReference('');
+  };
+
+  const addPhotoEvidence = async (source: 'camera' | 'library') => {
+    if (!occurrence || savingProof) return;
+    try {
+      setSavingProof(true);
+      if (source === 'camera') {
+        const permission = await ImagePicker.requestCameraPermissionsAsync();
+        if (!permission.granted) {
+          Alert.alert('Camera permission needed', 'Allow camera access to take proof photos.');
+          return;
+        }
+      }
+      const result =
+        source === 'camera'
+          ? await ImagePicker.launchCameraAsync({
+              mediaTypes: ['images'],
+              allowsEditing: true,
+              quality: 0.72,
+            })
+          : await ImagePicker.launchImageLibraryAsync({
+              mediaTypes: ['images'],
+              allowsEditing: false,
+              quality: 0.72,
+            });
+      if (result.canceled || !result.assets[0]?.uri) return;
+      const storedUri = await persistEvidenceImage(result.assets[0].uri);
+      setEvidenceDrafts([
+        {
+          type: 'photo',
+          attachmentUri: storedUri,
+          attachmentName: result.assets[0].fileName ?? 'Payment proof',
+          note: occurrence.source.description,
+          currencyCode: occurrence.currencyCode,
+          confidence: 'manual',
+        },
+        ...evidenceDrafts,
+      ]);
+    } catch {
+      Alert.alert('Proof not saved', 'The selected image could not be attached.');
+    } finally {
+      setSavingProof(false);
+    }
+  };
+
+  const removeDraft = (index: number) => {
+    const draft = evidenceDrafts[index];
+    if (draft?.attachmentUri) deleteEvidenceFile(draft.attachmentUri).catch(console.error);
+    setEvidenceDrafts(evidenceDrafts.filter((_, i) => i !== index));
+  };
+
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={closeWithoutSaving}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.modalRoot}
       >
-        <Pressable style={styles.modalBackdrop} onPress={onClose} />
+        <Pressable style={styles.modalBackdrop} onPress={closeWithoutSaving} />
         <View style={styles.sheet}>
           <View style={styles.sheetHandle} />
           <View style={styles.sheetHead}>
             <Text style={styles.sheetTitle}>Confirm occurrence</Text>
-            <Pressable onPress={onClose} hitSlop={8}>
+            <Pressable onPress={closeWithoutSaving} hitSlop={8}>
               <X size={20} color={colors.stone500} />
             </Pressable>
           </View>
 
           {occurrence ? (
-            <View style={{ gap: 18 }}>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 18 }}>
               <Text style={styles.sourceTitle}>{occurrence.source.description}</Text>
 
               <Field label={`Amount (${selectedLedger?.currencyCode ?? occurrence.currencyCode})`}>
@@ -181,7 +278,105 @@ export function ConfirmOccurrenceSheet({
                   style={styles.input}
                 />
               </Field>
-            </View>
+
+              <Field label="Payment proof">
+                <View style={styles.proofGrid}>
+                  <Pressable
+                    onPress={() => addPhotoEvidence('camera')}
+                    disabled={savingProof}
+                    style={styles.proofButton}
+                  >
+                    {savingProof ? (
+                      <ActivityIndicator size="small" color={colors.rust} />
+                    ) : (
+                      <Camera size={15} color={colors.rust} />
+                    )}
+                    <Text style={styles.proofButtonText}>Photo</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => addPhotoEvidence('library')}
+                    disabled={savingProof}
+                    style={styles.proofButton}
+                  >
+                    <ImagePlus size={15} color={colors.rust} />
+                    <Text style={styles.proofButtonText}>Image</Text>
+                  </Pressable>
+                </View>
+                <View style={styles.proofModeRow}>
+                  {(['sms_text', 'email_text'] as const).map((mode) => {
+                    const active = proofTextType === mode;
+                    return (
+                      <Pressable
+                        key={mode}
+                        onPress={() => setProofTextType(mode)}
+                        style={[styles.proofMode, active && { backgroundColor: colors.ink }]}
+                      >
+                        {mode === 'email_text' ? (
+                          <Mail size={13} color={active ? colors.paper : colors.stone600} />
+                        ) : (
+                          <Clipboard size={13} color={active ? colors.paper : colors.stone600} />
+                        )}
+                        <Text style={[styles.proofModeText, active && { color: colors.paper }]}>
+                          {mode === 'email_text' ? 'Email' : 'SMS'}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <TextInput
+                  value={proofText}
+                  onChangeText={setProofText}
+                  placeholder="Paste bank SMS or email alert"
+                  placeholderTextColor={colors.stone400}
+                  multiline
+                  style={styles.proofTextArea}
+                />
+                <View style={styles.proofInline}>
+                  <TextInput
+                    value={proofReference}
+                    onChangeText={setProofReference}
+                    placeholder="Reference"
+                    placeholderTextColor={colors.stone400}
+                    style={styles.proofInput}
+                  />
+                  <Pressable
+                    onPress={addTextEvidence}
+                    disabled={!proofText.trim() && !proofReference.trim()}
+                    style={[
+                      styles.proofAdd,
+                      !proofText.trim() && !proofReference.trim() && { opacity: 0.45 },
+                    ]}
+                  >
+                    <Clipboard size={13} color={colors.paper} />
+                    <Text style={styles.proofAddText}>Attach</Text>
+                  </Pressable>
+                </View>
+                {evidenceDrafts.length > 0 ? (
+                  <View style={styles.proofList}>
+                    {evidenceDrafts.map((item, index) => (
+                      <View key={`${item.type}-${index}`} style={styles.proofItem}>
+                        {item.attachmentUri ? (
+                          <Image source={{ uri: item.attachmentUri }} style={styles.proofThumb} />
+                        ) : (
+                          <View style={styles.proofIcon}>
+                            <Clipboard size={14} color={colors.rust} />
+                          </View>
+                        )}
+                        <Text style={styles.proofSummary} numberOfLines={1}>
+                          {summarizeEvidence(item)}
+                        </Text>
+                        <Pressable
+                          onPress={() => removeDraft(index)}
+                          hitSlop={8}
+                        >
+                          <Trash2 size={14} color={colors.clay} />
+                        </Pressable>
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
+              </Field>
+            </ScrollView>
           ) : null}
 
           <Pressable
@@ -189,7 +384,9 @@ export function ConfirmOccurrenceSheet({
             disabled={!canConfirm}
             style={[styles.submit, !canConfirm && { opacity: 0.4 }]}
           >
-            <Text style={styles.submitLabel}>Post transaction</Text>
+            <Text style={styles.submitLabel}>
+              {evidenceDrafts.length > 0 ? 'Post with proof' : 'Post transaction'}
+            </Text>
           </Pressable>
         </View>
 
@@ -292,6 +489,125 @@ const createStyles = (colors: any) =>
       fontFamily: fonts.bodyMedium,
       fontSize: 12,
       color: colors.inkSoft,
+    },
+    proofGrid: {
+      flexDirection: 'row',
+      gap: 8,
+      marginBottom: 10,
+    },
+    proofButton: {
+      flex: 1,
+      minHeight: 48,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: colors.borderSoft,
+      backgroundColor: colors.paper,
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexDirection: 'row',
+      gap: 6,
+    },
+    proofButtonText: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: 12,
+      color: colors.ink,
+    },
+    proofModeRow: {
+      flexDirection: 'row',
+      gap: 8,
+      marginBottom: 10,
+    },
+    proofMode: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingHorizontal: 11,
+      paddingVertical: 7,
+      borderRadius: 999,
+      backgroundColor: colors.chip,
+    },
+    proofModeText: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: 11,
+      color: colors.stone600,
+    },
+    proofTextArea: {
+      minHeight: 76,
+      textAlignVertical: 'top',
+      fontFamily: fonts.body,
+      fontSize: 14,
+      color: colors.ink,
+      backgroundColor: colors.paper,
+      borderWidth: 1,
+      borderColor: colors.borderSoft,
+      borderRadius: 14,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+    },
+    proofInline: {
+      flexDirection: 'row',
+      gap: 10,
+      marginTop: 10,
+    },
+    proofInput: {
+      flex: 1,
+      minWidth: 0,
+      fontFamily: fonts.body,
+      fontSize: 14,
+      paddingVertical: 8,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.borderSoft,
+      color: colors.ink,
+    },
+    proofAdd: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      minWidth: 92,
+      borderRadius: 999,
+      backgroundColor: colors.ink,
+      paddingHorizontal: 12,
+    },
+    proofAddText: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: 12,
+      color: colors.paper,
+    },
+    proofList: {
+      gap: 8,
+      marginTop: 10,
+    },
+    proofItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 9,
+      padding: 9,
+      borderRadius: 13,
+      backgroundColor: colors.paper,
+      borderWidth: 1,
+      borderColor: colors.borderSoft,
+    },
+    proofThumb: {
+      width: 34,
+      height: 34,
+      borderRadius: 9,
+      backgroundColor: colors.chip,
+    },
+    proofIcon: {
+      width: 34,
+      height: 34,
+      borderRadius: 9,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.chip,
+    },
+    proofSummary: {
+      flex: 1,
+      minWidth: 0,
+      fontFamily: fonts.body,
+      fontSize: 12,
+      color: colors.stone600,
     },
     submit: {
       backgroundColor: colors.ink,

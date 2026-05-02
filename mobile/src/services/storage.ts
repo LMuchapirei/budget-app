@@ -10,6 +10,7 @@ import type {
   Goal,
   BillOccurrenceRecord,
   ScheduledOccurrenceRecord,
+  PaymentEvidence,
 } from '../types';
 
 export interface ThemePreferencesPayload {
@@ -63,6 +64,9 @@ export interface DataService {
   getScheduledOccurrenceRecords(): Promise<ScheduledOccurrenceRecord[]>;
   saveScheduledOccurrenceRecords(records: ScheduledOccurrenceRecord[]): Promise<void>;
 
+  getPaymentEvidence(): Promise<PaymentEvidence[]>;
+  savePaymentEvidence(evidence: PaymentEvidence[]): Promise<void>;
+
   getAppLock(): Promise<boolean>;
   setAppLock(enabled: boolean): Promise<void>;
 
@@ -84,6 +88,7 @@ class LocalDataService implements DataService {
   private readonly GOALS_KEY = 'budget:goals:v1';
   private readonly BILL_OCCURRENCES_KEY = 'budget:bill-occurrences:v1';
   private readonly SCHEDULED_OCCURRENCES_KEY = 'budget:scheduled-occurrences:v2';
+  private readonly PAYMENT_EVIDENCE_KEY = 'budget:payment-evidence:v1';
   private readonly APPLOCK_KEY = 'budget:applock:v1';
 
   async getTheme(): Promise<string | null> {
@@ -268,6 +273,20 @@ class LocalDataService implements DataService {
     await AsyncStorage.setItem(this.SCHEDULED_OCCURRENCES_KEY, JSON.stringify(records));
   }
 
+  async getPaymentEvidence(): Promise<PaymentEvidence[]> {
+    const raw = await AsyncStorage.getItem(this.PAYMENT_EVIDENCE_KEY);
+    if (!raw) return [];
+    try {
+      return JSON.parse(raw) as PaymentEvidence[];
+    } catch {
+      return [];
+    }
+  }
+
+  async savePaymentEvidence(evidence: PaymentEvidence[]): Promise<void> {
+    await AsyncStorage.setItem(this.PAYMENT_EVIDENCE_KEY, JSON.stringify(evidence));
+  }
+
   async getAppLock(): Promise<boolean> {
     const val = await AsyncStorage.getItem(this.APPLOCK_KEY);
     return val === 'true';
@@ -291,6 +310,7 @@ class LocalDataService implements DataService {
       this.GOALS_KEY,
       this.BILL_OCCURRENCES_KEY,
       this.SCHEDULED_OCCURRENCES_KEY,
+      this.PAYMENT_EVIDENCE_KEY,
     ]);
   }
 }

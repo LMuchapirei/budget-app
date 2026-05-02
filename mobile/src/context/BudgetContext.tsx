@@ -23,6 +23,8 @@ import type {
   BillNotificationSyncResult,
   ScheduledOccurrenceRecord,
   ScheduledOccurrenceStatus,
+  PaymentEvidence,
+  PaymentEvidenceDraft,
 } from '../types';
 import { storage } from '../services/storage';
 import {
@@ -53,6 +55,8 @@ import {
   requestScheduledNotificationPermission as requestDeviceScheduledNotificationPermission,
   scheduleOccurrenceReminder,
 } from '../services/scheduledNotifications';
+import { clearEvidenceFiles, deleteEvidenceFile } from '../services/paymentEvidenceFiles';
+import { paymentEvidenceId } from '../utils/paymentEvidence';
 
 export interface DateFilter {
   startDate: string; // YYYY-MM-DD
@@ -105,6 +109,10 @@ interface BudgetContextValue {
   ledgerBalance: (id: string) => number;
   scheduledOccurrences: ScheduledOccurrence[];
   scheduledOccurrenceRecords: ScheduledOccurrenceRecord[];
+  paymentEvidence: PaymentEvidence[];
+  evidenceForOccurrence: (occurrenceId: string) => PaymentEvidence[];
+  addPaymentEvidence: (occurrenceId: string, evidence: PaymentEvidenceDraft) => void;
+  removePaymentEvidence: (id: string) => void;
   scheduledNotificationStatus: BillNotificationStatus;
   confirmOccurrence: (id: string, override?: ConfirmOccurrenceOverride) => void;
   skipOccurrence: (id: string) => void;
@@ -250,6 +258,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [scheduledOccurrenceRecords, setScheduledOccurrenceRecords] = useState<ScheduledOccurrenceRecord[]>([]);
+  const [paymentEvidence, setPaymentEvidence] = useState<PaymentEvidence[]>([]);
   const [scheduledNotificationStatus, setScheduledNotificationStatus] =
     useState<BillNotificationStatus>('unknown');
   const [reportingCurrency, setReportingCurrencyState] =
@@ -330,6 +339,11 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
           await storage.clearLegacyBillOccurrenceRecords();
         }
 
+        const savedPaymentEvidence = storage.getPaymentEvidence
+          ? await storage.getPaymentEvidence()
+          : [];
+        if (savedPaymentEvidence) setPaymentEvidence(savedPaymentEvidence);
+
         const savedReportingCurrency = await storage.getReportingCurrency();
         const legacyCurrencySymbol = await storage.getCurrency();
         const nextReportingCurrency = savedReportingCurrency
@@ -409,6 +423,15 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     setScheduledOccurrenceRecords(next);
     try {
       await storage.saveScheduledOccurrenceRecords(next);
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
+  const persistPaymentEvidence = useCallback(async (next: PaymentEvidence[]) => {
+    setPaymentEvidence(next);
+    try {
+      await storage.savePaymentEvidence(next);
     } catch (e) {
       console.error(e);
     }
@@ -583,6 +606,15 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
           cancelOccurrenceReminder(record.notificationId).catch(console.error);
         }
       });
+      if (mode === 'all') {
+        const occurrenceIds = new Set(matching.map((record) => record.id));
+        paymentEvidence
+          .filter((evidence) => occurrenceIds.has(evidence.occurrenceId))
+          .forEach((evidence) => deleteEvidenceFile(evidence.attachmentUri).catch(console.error));
+        persistPaymentEvidence(
+          paymentEvidence.filter((evidence) => !occurrenceIds.has(evidence.occurrenceId)),
+        );
+      }
       persistScheduledOccurrenceRecords(
         scheduledOccurrenceRecords.filter(
           (record) =>
@@ -591,7 +623,12 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
         ),
       );
     },
-    [persistScheduledOccurrenceRecords, scheduledOccurrenceRecords],
+    [
+      paymentEvidence,
+      persistPaymentEvidence,
+      persistScheduledOccurrenceRecords,
+      scheduledOccurrenceRecords,
+    ],
   );
 
   const recurringScheduleChanged = (before: Transaction, after: Transaction) => {
@@ -723,6 +760,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
 
   const clearAllData = async () => {
     await cancelAllOccurrenceReminders();
+    await clearEvidenceFiles();
     await storage.clearAllData();
     setTransactions([]);
     setTransactionEditHistory([]);
@@ -732,6 +770,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     setBudgets([]);
     setGoals([]);
     setScheduledOccurrenceRecords([]);
+    setPaymentEvidence([]);
     setScheduledNotificationStatus('unknown');
     setReportingCurrencyState(DEFAULT_REPORTING_CURRENCY);
     setFxRates(null);
@@ -990,6 +1029,39 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     [persistScheduledOccurrenceRecords, scheduledOccurrenceRecords],
   );
 
+  const evidenceForOccurrence = useCallback(
+    (occurrenceId: string) =>
+      paymentEvidence
+        .filter((evidence) => evidence.occurrenceId === occurrenceId)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    [paymentEvidence],
+  );
+
+  const addPaymentEvidence = useCallback(
+    (occurrenceId: string, evidence: PaymentEvidenceDraft) => {
+      const next: PaymentEvidence = {
+        ...evidence,
+        id: paymentEvidenceId(),
+        occurrenceId,
+        createdAt: new Date().toISOString(),
+        confidence: evidence.confidence ?? 'manual',
+      };
+      persistPaymentEvidence([next, ...paymentEvidence]);
+    },
+    [paymentEvidence, persistPaymentEvidence],
+  );
+
+  const removePaymentEvidence = useCallback(
+    (id: string) => {
+      const existing = paymentEvidence.find((evidence) => evidence.id === id);
+      if (existing?.attachmentUri) {
+        deleteEvidenceFile(existing.attachmentUri).catch(console.error);
+      }
+      persistPaymentEvidence(paymentEvidence.filter((evidence) => evidence.id !== id));
+    },
+    [paymentEvidence, persistPaymentEvidence],
+  );
+
   const confirmOccurrence = useCallback(
     (id: string, override?: ConfirmOccurrenceOverride) => {
       const occurrence = scheduledOccurrences.find((item) => item.id === id);
@@ -1008,6 +1080,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
         override?.date ?? occurrence?.effectiveDueDate ?? existing?.effectiveDueDate ?? parsed.dueDate;
       const originalDueDate = occurrence?.originalDueDate ?? existing?.originalDueDate ?? parsed.dueDate;
       const nowStamp = Date.now();
+      const markedAt = new Date().toISOString();
       const confirmedTransaction: Transaction = {
         ...source,
         id: `${source.id}-${effectiveDueDate}-${nowStamp}`,
@@ -1032,10 +1105,24 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
         confirmedTransactionId: confirmedTransaction.id,
         notificationId: undefined,
         notificationScheduledAt: undefined,
-        markedAt: new Date().toISOString(),
+        markedAt,
       });
+
+      if (override?.evidence?.length) {
+        const additions = override.evidence.map<PaymentEvidence>((draft) => ({
+          ...draft,
+          id: paymentEvidenceId(),
+          occurrenceId: id,
+          confirmedTransactionId: confirmedTransaction.id,
+          createdAt: markedAt,
+          confidence: draft.confidence ?? 'manual',
+        }));
+        persistPaymentEvidence([...additions, ...paymentEvidence]);
+      }
     },
     [
+      paymentEvidence,
+      persistPaymentEvidence,
       persistTransactions,
       scheduledOccurrenceRecords,
       scheduledOccurrences,
@@ -1370,6 +1457,10 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
         ledgerBalance,
         scheduledOccurrences,
         scheduledOccurrenceRecords,
+        paymentEvidence,
+        evidenceForOccurrence,
+        addPaymentEvidence,
+        removePaymentEvidence,
         scheduledNotificationStatus,
         confirmOccurrence,
         skipOccurrence,

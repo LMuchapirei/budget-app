@@ -47,6 +47,13 @@
           "androidMode": "default",
           "androidCollapsedTitle": "Schedule reminders"
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow The Budget to attach selected receipt or payment proof photos to bills.",
+          "cameraPermission": "Allow The Budget to take a receipt or payment proof photo."
+        }
       ]
     ],
     "extra": {
