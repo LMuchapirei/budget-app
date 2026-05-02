@@ -156,6 +156,30 @@ export type PaymentEvidenceType =
 
 export type PaymentEvidenceConfidence = 'manual' | 'parsed' | 'matched' | 'verified';
 
+export type PaymentEvidenceInsightType =
+  | 'paid_amount'
+  | 'balance_amount'
+  | 'fee_amount'
+  | 'merchant'
+  | 'reference'
+  | 'account_hint'
+  | 'payment_status'
+  | 'payment_channel'
+  | 'paid_date'
+  | 'currency'
+  | 'match_quality';
+
+export type PaymentEvidenceInsightConfidence = 'low' | 'medium' | 'high';
+
+export interface PaymentEvidenceInsight {
+  id: string;
+  type: PaymentEvidenceInsightType;
+  label: string;
+  value: string;
+  confidence: PaymentEvidenceInsightConfidence;
+  sourceText?: string;
+}
+
 export interface PaymentEvidenceDraft {
   type: PaymentEvidenceType;
   amount?: number;
@@ -169,6 +193,7 @@ export interface PaymentEvidenceDraft {
   providerTransactionId?: string;
   note?: string;
   confidence?: PaymentEvidenceConfidence;
+  insights?: PaymentEvidenceInsight[];
 }
 
 export interface PaymentEvidence extends PaymentEvidenceDraft {

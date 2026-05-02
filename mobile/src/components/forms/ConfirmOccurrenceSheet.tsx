@@ -23,8 +23,9 @@ import { deleteEvidenceFile, persistEvidenceImage } from '../../services/payment
 import { fonts } from '../../theme';
 import { Field } from './AddCategorySheet';
 import { DatePickerSheet } from './DatePickerSheet';
+import { PaymentEvidencePreviewSheet } from './PaymentEvidencePreviewSheet';
 import {
-  parsePaymentEvidenceText,
+  analyzePaymentEvidenceText,
   summarizeEvidence,
 } from '../../utils/paymentEvidence';
 
@@ -65,6 +66,7 @@ export function ConfirmOccurrenceSheet({
   const [evidenceDrafts, setEvidenceDrafts] = useState<PaymentEvidenceDraft[]>([]);
   const [savingProof, setSavingProof] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [previewDraftIndex, setPreviewDraftIndex] = useState<number | null>(null);
 
   const selectableLedgers = useMemo(() => {
     if (!occurrence?.source.ledgerId) return activeLedgers;
@@ -90,6 +92,7 @@ export function ConfirmOccurrenceSheet({
     setEvidenceDrafts([]);
     setSavingProof(false);
     setShowDatePicker(false);
+    setPreviewDraftIndex(null);
   }, [occurrence, visible]);
 
   const parsedAmount = Number(amount);
@@ -101,6 +104,24 @@ export function ConfirmOccurrenceSheet({
     Boolean(date) &&
     Boolean(ledgerId) &&
     category.trim().length > 0;
+  const proofAnalysisContext = useMemo(
+    () =>
+      occurrence
+        ? {
+            expectedAmount: parsedAmount > 0 ? parsedAmount : occurrence.amount,
+            expectedMerchant: occurrence.source.description,
+            expectedDate: date || occurrence.effectiveDueDate,
+            currencyCode: occurrence.currencyCode,
+          }
+        : null,
+    [date, occurrence, parsedAmount],
+  );
+  const parsedProofPreview = useMemo(() => {
+    if (!proofAnalysisContext || proofText.trim().length === 0) return null;
+    return analyzePaymentEvidenceText(proofText, proofAnalysisContext);
+  }, [proofAnalysisContext, proofText]);
+  const previewDraft =
+    previewDraftIndex == null ? null : evidenceDrafts[previewDraftIndex] ?? null;
 
   const handleConfirm = () => {
     if (!canConfirm) return;
@@ -125,7 +146,12 @@ export function ConfirmOccurrenceSheet({
   const addTextEvidence = () => {
     if (!occurrence || (!proofText.trim() && !proofReference.trim())) return;
     const parsed = proofText.trim()
-      ? parsePaymentEvidenceText(proofText, occurrence.currencyCode)
+      ? analyzePaymentEvidenceText(
+          proofText,
+          proofAnalysisContext ?? {
+            currencyCode: occurrence.currencyCode,
+          },
+        )
       : {};
     setEvidenceDrafts([
       {
@@ -133,6 +159,9 @@ export function ConfirmOccurrenceSheet({
         type: proofTextType,
         rawText: proofText.trim() || undefined,
         reference: proofReference.trim() || parsed.reference,
+        amount: parsed.amount ?? occurrence.amount,
+        paidAt: parsed.paidAt ?? date,
+        merchant: occurrence.source.description,
         currencyCode: parsed.currencyCode ?? occurrence.currencyCode,
         confidence: parsed.confidence ?? 'manual',
       },
@@ -170,6 +199,9 @@ export function ConfirmOccurrenceSheet({
       setEvidenceDrafts([
         {
           type: 'photo',
+          amount: parsedAmount > 0 ? parsedAmount : occurrence.amount,
+          paidAt: date,
+          merchant: occurrence.source.description,
           attachmentUri: storedUri,
           attachmentName: result.assets[0].fileName ?? 'Payment proof',
           note: occurrence.source.description,
@@ -189,6 +221,7 @@ export function ConfirmOccurrenceSheet({
     const draft = evidenceDrafts[index];
     if (draft?.attachmentUri) deleteEvidenceFile(draft.attachmentUri).catch(console.error);
     setEvidenceDrafts(evidenceDrafts.filter((_, i) => i !== index));
+    if (previewDraftIndex === index) setPreviewDraftIndex(null);
   };
 
   return (
@@ -331,6 +364,27 @@ export function ConfirmOccurrenceSheet({
                   multiline
                   style={styles.proofTextArea}
                 />
+                {parsedProofPreview ? (
+                  <View style={styles.detectedPanel}>
+                    <Text style={styles.detectedTitle}>Insights</Text>
+                    <View style={styles.detectedChips}>
+                      {(parsedProofPreview.insights ?? []).slice(0, 6).map((insight) => (
+                        <Text
+                          key={insight.id}
+                          style={[
+                            styles.detectedChip,
+                            insight.confidence === 'high' && {
+                              backgroundColor: colors.ink,
+                              color: colors.paper,
+                            },
+                          ]}
+                        >
+                          {insight.label}: {insight.value}
+                        </Text>
+                      ))}
+                    </View>
+                  </View>
+                ) : null}
                 <View style={styles.proofInline}>
                   <TextInput
                     value={proofReference}
@@ -354,7 +408,11 @@ export function ConfirmOccurrenceSheet({
                 {evidenceDrafts.length > 0 ? (
                   <View style={styles.proofList}>
                     {evidenceDrafts.map((item, index) => (
-                      <View key={`${item.type}-${index}`} style={styles.proofItem}>
+                      <Pressable
+                        key={`${item.type}-${index}`}
+                        onPress={() => setPreviewDraftIndex(index)}
+                        style={styles.proofItem}
+                      >
                         {item.attachmentUri ? (
                           <Image source={{ uri: item.attachmentUri }} style={styles.proofThumb} />
                         ) : (
@@ -371,7 +429,7 @@ export function ConfirmOccurrenceSheet({
                         >
                           <Trash2 size={14} color={colors.clay} />
                         </Pressable>
-                      </View>
+                      </Pressable>
                     ))}
                   </View>
                 ) : null}
@@ -396,6 +454,21 @@ export function ConfirmOccurrenceSheet({
           value={date}
           onSelect={setDate}
           onClose={() => setShowDatePicker(false)}
+        />
+
+        <PaymentEvidencePreviewSheet
+          visible={Boolean(previewDraft)}
+          evidence={previewDraft}
+          analysisContext={proofAnalysisContext ?? undefined}
+          onClose={() => setPreviewDraftIndex(null)}
+          onRemove={
+            previewDraftIndex == null
+              ? undefined
+              : () => {
+                  removeDraft(previewDraftIndex);
+                  setPreviewDraftIndex(null);
+                }
+          }
         />
       </KeyboardAvoidingView>
     </Modal>
@@ -548,6 +621,36 @@ const createStyles = (colors: any) =>
       flexDirection: 'row',
       gap: 10,
       marginTop: 10,
+    },
+    detectedPanel: {
+      marginTop: 10,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: colors.borderSoft,
+      backgroundColor: colors.paper,
+      padding: 10,
+      gap: 8,
+    },
+    detectedTitle: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: 11,
+      color: colors.stone500,
+      textTransform: 'uppercase',
+      letterSpacing: 0.7,
+    },
+    detectedChips: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 7,
+    },
+    detectedChip: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: 11,
+      color: colors.rust,
+      backgroundColor: colors.chip,
+      borderRadius: 999,
+      paddingHorizontal: 9,
+      paddingVertical: 4,
     },
     proofInput: {
       flex: 1,

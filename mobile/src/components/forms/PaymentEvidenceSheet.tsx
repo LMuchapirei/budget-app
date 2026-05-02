@@ -29,10 +29,13 @@ import type { PaymentEvidence, PaymentEvidenceDraft, PaymentEvidenceType, Schedu
 import { persistEvidenceImage } from '../../services/paymentEvidenceFiles';
 import { fonts } from '../../theme';
 import { Field } from './AddCategorySheet';
+import { PaymentEvidencePreviewSheet } from './PaymentEvidencePreviewSheet';
 import {
+  analyzePaymentEvidenceText,
   evidenceConfidenceLabel,
   evidenceTypeLabel,
-  parsePaymentEvidenceText,
+  formatEvidenceDate,
+  mergePaymentEvidenceAnalysis,
   summarizeEvidence,
 } from '../../utils/paymentEvidence';
 
@@ -51,15 +54,6 @@ const textTypes: { id: PaymentEvidenceType; label: string }[] = [
   { id: 'manual_note', label: 'Reference' },
 ];
 
-function formatEvidenceDate(iso?: string) {
-  if (!iso) return '';
-  return new Date(iso).toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
-}
-
 export function PaymentEvidenceSheet({
   visible,
   occurrence,
@@ -75,10 +69,39 @@ export function PaymentEvidenceSheet({
   const [reference, setReference] = useState('');
   const [note, setNote] = useState('');
   const [savingImage, setSavingImage] = useState(false);
+  const [previewing, setPreviewing] = useState<PaymentEvidence | null>(null);
 
   const canAddText =
     Boolean(occurrence) &&
     (rawText.trim().length > 0 || reference.trim().length > 0 || note.trim().length > 0);
+  const parsedPreview = useMemo(() => {
+    if (!occurrence || textType === 'manual_note' || rawText.trim().length === 0) return null;
+    return analyzePaymentEvidenceText(rawText, {
+      expectedAmount: occurrence.amount,
+      expectedMerchant: occurrence.source.description,
+      expectedDate: occurrence.effectiveDueDate,
+      currencyCode: occurrence.currencyCode,
+    });
+  }, [occurrence, rawText, textType]);
+  const analysisContext = useMemo(
+    () =>
+      occurrence
+        ? {
+            expectedAmount: occurrence.amount,
+            expectedMerchant: occurrence.source.description,
+            expectedDate: occurrence.effectiveDueDate,
+            currencyCode: occurrence.currencyCode,
+          }
+        : null,
+    [occurrence],
+  );
+  const displayEvidence = useMemo(
+    () =>
+      analysisContext
+        ? evidence.map((item) => mergePaymentEvidenceAnalysis(item, analysisContext))
+        : evidence,
+    [analysisContext, evidence],
+  );
 
   const resetText = () => {
     setRawText('');
@@ -92,16 +115,24 @@ export function PaymentEvidenceSheet({
     const parsed =
       textType === 'manual_note'
         ? {}
-        : parsePaymentEvidenceText(rawText, occurrence.currencyCode);
-    onAdd({
-      ...parsed,
-      type: textType,
-      rawText: rawText.trim() || undefined,
-      reference: reference.trim() || parsed.reference,
-      note: note.trim() || undefined,
-      currencyCode: parsed.currencyCode ?? occurrence.currencyCode,
-      confidence: parsed.confidence ?? 'manual',
-    });
+        : analyzePaymentEvidenceText(rawText, {
+            expectedAmount: occurrence.amount,
+            expectedMerchant: occurrence.source.description,
+            expectedDate: occurrence.effectiveDueDate,
+            currencyCode: occurrence.currencyCode,
+          });
+      onAdd({
+        ...parsed,
+        type: textType,
+        rawText: rawText.trim() || undefined,
+        reference: reference.trim() || parsed.reference,
+        note: note.trim() || undefined,
+        amount: parsed.amount ?? occurrence.amount,
+        paidAt: parsed.paidAt ?? occurrence.effectiveDueDate,
+        merchant: occurrence.source.description,
+        currencyCode: parsed.currencyCode ?? occurrence.currencyCode,
+        confidence: parsed.confidence ?? 'manual',
+      });
     resetText();
   };
 
@@ -132,6 +163,9 @@ export function PaymentEvidenceSheet({
       const storedUri = await persistEvidenceImage(result.assets[0].uri);
       onAdd({
         type: 'photo',
+        amount: occurrence.amount,
+        paidAt: occurrence.effectiveDueDate,
+        merchant: occurrence.source.description,
         attachmentUri: storedUri,
         attachmentName: result.assets[0].fileName ?? 'Payment proof',
         note: occurrence.source.description,
@@ -224,7 +258,28 @@ export function PaymentEvidenceSheet({
                 placeholderTextColor={colors.stone400}
                 multiline
                 style={styles.textArea}
-              />
+                />
+                {parsedPreview ? (
+                  <View style={styles.detectedPanel}>
+                    <Text style={styles.detectedTitle}>Insights</Text>
+                    <View style={styles.detectedChips}>
+                      {(parsedPreview.insights ?? []).slice(0, 6).map((insight) => (
+                        <Text
+                          key={insight.id}
+                          style={[
+                            styles.detectedChip,
+                            insight.confidence === 'high' && {
+                              backgroundColor: colors.ink,
+                              color: colors.paper,
+                            },
+                          ]}
+                        >
+                          {insight.label}: {insight.value}
+                        </Text>
+                      ))}
+                    </View>
+                  </View>
+                ) : null}
               <View style={styles.inlineFields}>
                 <TextInput
                   value={reference}
@@ -254,10 +309,10 @@ export function PaymentEvidenceSheet({
             <View style={{ gap: 10 }}>
               <View style={styles.listHead}>
                 <Text style={styles.listTitle}>Attached</Text>
-                <Text style={styles.listCount}>{evidence.length}</Text>
+                <Text style={styles.listCount}>{displayEvidence.length}</Text>
               </View>
 
-              {evidence.length === 0 ? (
+              {displayEvidence.length === 0 ? (
                 <View style={styles.emptyState}>
                   <Text style={styles.emptyTitle}>No proof attached yet</Text>
                   <Text style={styles.emptyText}>
@@ -265,8 +320,12 @@ export function PaymentEvidenceSheet({
                   </Text>
                 </View>
               ) : (
-                evidence.map((item) => (
-                  <View key={item.id} style={styles.evidenceRow}>
+                displayEvidence.map((item) => (
+                  <Pressable
+                    key={item.id}
+                    onPress={() => setPreviewing(item)}
+                    style={styles.evidenceRow}
+                  >
                     {item.attachmentUri ? (
                       <Image source={{ uri: item.attachmentUri }} style={styles.thumbnail} />
                     ) : (
@@ -292,12 +351,27 @@ export function PaymentEvidenceSheet({
                     <Pressable onPress={() => onRemove(item.id)} hitSlop={8}>
                       <Trash2 size={16} color={colors.clay} />
                     </Pressable>
-                  </View>
+                  </Pressable>
                 ))
               )}
             </View>
           </ScrollView>
         </View>
+
+        <PaymentEvidencePreviewSheet
+          visible={Boolean(previewing)}
+          evidence={previewing}
+          analysisContext={analysisContext ?? undefined}
+          onClose={() => setPreviewing(null)}
+          onRemove={
+            previewing
+              ? () => {
+                  onRemove(previewing.id);
+                  setPreviewing(null);
+                }
+              : undefined
+          }
+        />
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -400,6 +474,36 @@ const createStyles = (colors: any) =>
       flexDirection: 'row',
       gap: 10,
       marginTop: 10,
+    },
+    detectedPanel: {
+      marginTop: 10,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: colors.borderSoft,
+      backgroundColor: colors.paper,
+      padding: 10,
+      gap: 8,
+    },
+    detectedTitle: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: 11,
+      color: colors.stone500,
+      textTransform: 'uppercase',
+      letterSpacing: 0.7,
+    },
+    detectedChips: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 7,
+    },
+    detectedChip: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: 11,
+      color: colors.rust,
+      backgroundColor: colors.chip,
+      borderRadius: 999,
+      paddingHorizontal: 9,
+      paddingVertical: 4,
     },
     input: {
       flex: 1,

@@ -467,17 +467,53 @@ Expected result:
 - The proof row disappears.
 - If it was a photo, the stored attachment file is removed from app storage.
 
+### Test Case 5: Preview Proof
+
+1. Open the `Proof` sheet for a bill with photo or text proof.
+2. Tap the proof row.
+3. Review the preview sheet.
+4. For text proof, confirm the original pasted alert and detected details are visible.
+5. For photo proof, confirm the image is shown in a large contained preview.
+
+Expected result:
+
+- The preview opens without leaving the bill flow.
+- The preview shows proof type, confidence, amount/date/reference where available, and the original pasted text or image.
+- Removing proof from the preview closes the preview and updates the attached list.
+
+### Test Case 6: SMS/Email Insight Tags
+
+1. Paste a realistic bank or wallet alert, for example:
+   - `Payment successful. R99.00 paid to Netflix. Avl bal R1,420.55. Ref ABC123 on 2026-05-02.`
+   - `Your Acc ending 0001 has been debited with ZWG71.16 PRINCIPAL PAYMENT on 02.05.26:20.05HRS ref:. Bal ZWG23.79.`
+2. Review the insights shown before attaching.
+3. Attach the proof and open the preview.
+
+Expected result:
+
+- The app tags `Paid amount` separately from `Balance`.
+- ZWG/ZWL amounts are not treated as USD.
+- Account numbers, date fragments, and time fragments are not treated as money.
+- The app tags merchant, reference, status, date, currency, and match quality where it can.
+- High-confidence chips are visually stronger.
+- A declined/reversed alert should show `Review needed` rather than looking like a normal payment.
+
 ### Trial Log
 
 | Date | Tester | Build/Branch | Scenario | Result | Follow-Up |
 | --- | --- | --- | --- | --- | --- |
 | 2026-05-02 | Codex | Working tree | Bill evidence implementation smoke test | `tsc --noEmit` passed | Manual camera/photo picker pass still needed |
+| 2026-05-02 | Codex | Working tree | Proof preview and capture metadata refinement | `tsc --noEmit` passed | Manual preview tap-through on device still recommended |
+| 2026-05-02 | Codex | Working tree | Local SMS/email insight tagging | `tsc --noEmit` passed | Add more real bank/wallet samples for parser tuning |
+| 2026-05-02 | Codex | Working tree | ZWG debit alert parser fix from screenshot sample | `tsc --noEmit` passed | Re-test on device with the same pasted SMS |
 
 ### Evolution Notes
 
 - Evidence is stored separately from transactions under `budget:payment-evidence:v1`.
 - Evidence links to the scheduled occurrence id, with optional `confirmedTransactionId` when attached during confirmation.
 - Pasted SMS/email text is parsed locally for amount, reference, date, currency, and a confidence label.
+- Proof rows open a clean preview sheet with image/text detail and parsed fields.
+- SMS/email analysis now emits insight tags for paid amount, balance, fees, merchant, reference, account hint, payment status, channel, date, currency, and match quality.
 - Bank/wallet matching is intentionally not live yet; the `bank_match` evidence type is reserved for later integrations.
 
 ## Recurring Engine Controls

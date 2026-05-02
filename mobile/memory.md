@@ -90,6 +90,7 @@ Last updated: 2026-05-02
 - `src/screens/BillsScreen.tsx`: scheduled commitments tracker with due, upcoming, confirmed, skipped, and postponed views.
 - `src/components/forms/ConfirmOccurrenceSheet.tsx`: confirm-before-post sheet for recurring occurrence amount/date/account overrides.
 - `src/components/forms/PaymentEvidenceSheet.tsx`: add/view/remove bill payment proof from a scheduled occurrence.
+- `src/components/forms/PaymentEvidencePreviewSheet.tsx`: focused proof preview for attached photos, pasted alerts, and parsed details.
 - `src/components/forms/TransactionForm.tsx`: add/edit transaction sheet.
 - `src/components/forms/DatePickerSheet.tsx`: reusable calendar picker for single date fields.
 - `src/components/forms/LedgerSheet.tsx`: add/edit account sheet with archive, set-default, and delete-with-reassignment.
@@ -157,6 +158,9 @@ Last updated: 2026-05-02
   - Occurrences can carry payment evidence: receipt/payment photo, pasted SMS alert, pasted email alert, or manual reference/note.
   - The confirm sheet can attach proof before posting; the Bills card can open a proof sheet after posting.
   - Pasted proof is parsed locally for amount, date, currency, and reference confidence.
+  - Attached proof rows open a preview sheet with full image/text detail, parsed fields, and remove action.
+  - SMS/email proof analysis tags paid amount separately from balance/fees and surfaces merchant, reference, account hint, status, channel, date, currency, and match-quality insights.
+  - The parser recognizes ZWG/ZWL alerts and filters account numbers, dates, and times out of amount detection.
   - Proof photos use `expo-image-picker` and are copied into app document storage through `expo-file-system`.
   - Bank/wallet transaction matching is modeled as a future `bank_match` evidence type but is not integrated yet.
   - Local reminders use `expo-notifications` and the recurring schedule's reminder lead days.
