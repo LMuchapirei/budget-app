@@ -22,6 +22,7 @@ import type { Transaction, ViewTab } from './types';
 import { colors as fallbackColors } from './theme';
 
 import { Header } from './components/Header';
+import { BillsScreen } from './screens/BillsScreen';
 import { DashboardScreen } from './screens/DashboardScreen';
 import { ProjectionsScreen } from './screens/ProjectionsScreen';
 import { ReportsScreen } from './screens/ReportsScreen';
@@ -66,6 +67,7 @@ function Layout() {
               }}
             />
           )}
+          {view === 'bills' && <BillsScreen />}
           {view === 'projections' && <ProjectionsScreen />}
           {view === 'reports' && <ReportsScreen />}
           {view === 'settings' && <SettingsScreen />}

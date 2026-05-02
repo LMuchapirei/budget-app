@@ -12,16 +12,29 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { CreditCard, X, Repeat } from 'lucide-react-native';
+import { CalendarDays, CreditCard, X, Repeat } from 'lucide-react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { ALL_LEDGER_ID, useBudget } from '../../context/BudgetContext';
 import type { TxType, Category, Transaction, RecurringFrequency } from '../../types';
 import { fonts, CATEGORIES, colorFor } from '../../theme';
 import { Field, AddCategorySheet } from './AddCategorySheet';
+import { DatePickerSheet } from './DatePickerSheet';
 
 interface TransactionFormProps {
   onClose: () => void;
   transaction?: Transaction | null;
+}
+
+type DatePickerTarget = 'transaction' | 'recurringStart' | 'recurringEnd';
+
+function formatDateLabel(iso: string) {
+  const [year, month, day] = iso.split('-').map(Number);
+  if (!year || !month || !day) return iso;
+  return new Date(year, month - 1, day).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
 }
 
 export function TransactionForm({ onClose, transaction }: TransactionFormProps) {
@@ -71,6 +84,7 @@ export function TransactionForm({ onClose, transaction }: TransactionFormProps) 
     String(transaction?.recurringSchedule?.reminderDaysBefore ?? 1),
   );
   const [showAddCategory, setShowAddCategory] = useState(false);
+  const [activeDatePicker, setActiveDatePicker] = useState<DatePickerTarget | null>(null);
   const skipInitialCategoryReset = useRef(Boolean(transaction));
   const selectedLedger =
     ledgers.find((ledger) => ledger.id === ledgerId) ?? selectableLedgers[0];
@@ -136,6 +150,38 @@ export function TransactionForm({ onClose, transaction }: TransactionFormProps) 
     ...(type === 'income' ? CATEGORIES.income : CATEGORIES.expense),
     ...customCategories.filter(c => c.type === type).map(c => c.title)
   ];
+  const activeDateValue =
+    activeDatePicker === 'recurringStart'
+      ? recurringStartDate
+      : activeDatePicker === 'recurringEnd'
+      ? recurringEndDate || recurringStartDate || date
+      : date;
+  const activeDateTitle =
+    activeDatePicker === 'recurringStart'
+      ? 'First due date'
+      : activeDatePicker === 'recurringEnd'
+      ? 'Ends on'
+      : 'Entry date';
+  const activeDateMin = activeDatePicker === 'recurringEnd' ? recurringStartDate || date : undefined;
+
+  const handleDateSelect = (iso: string) => {
+    if (activeDatePicker === 'recurringStart') {
+      setRecurringStartDate(iso);
+      if (recurringEndDate && recurringEndDate < iso) {
+        setRecurringEndDate(iso);
+      }
+      return;
+    }
+    if (activeDatePicker === 'recurringEnd') {
+      setRecurringEndDate(iso);
+      return;
+    }
+    const previousDate = date;
+    setDate(iso);
+    if (!recurringStartDate || recurringStartDate === previousDate) {
+      setRecurringStartDate(iso);
+    }
+  };
 
   return (
     <KeyboardAvoidingView
@@ -288,16 +334,13 @@ export function TransactionForm({ onClose, transaction }: TransactionFormProps) 
           </Field>
 
           <Field label="Date">
-            <TextInput
-              value={date}
-              onChangeText={setDate}
-              placeholder="YYYY-MM-DD"
-              placeholderTextColor={colors.stone400}
-              autoCapitalize="none"
-              returnKeyType="done"
-              onSubmitEditing={Keyboard.dismiss}
-              style={styles.input}
-            />
+            <Pressable
+              onPress={() => setActiveDatePicker('transaction')}
+              style={styles.dateButton}
+            >
+              <CalendarDays size={15} color={colors.stone500} />
+              <Text style={styles.dateButtonText}>{formatDateLabel(date)}</Text>
+            </Pressable>
           </Field>
 
           <View style={styles.recurringRow}>
@@ -367,29 +410,32 @@ export function TransactionForm({ onClose, transaction }: TransactionFormProps) 
               </View>
 
               <Field label="First due date">
-                <TextInput
-                  value={recurringStartDate}
-                  onChangeText={setRecurringStartDate}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor={colors.stone400}
-                  autoCapitalize="none"
-                  returnKeyType="done"
-                  onSubmitEditing={Keyboard.dismiss}
-                  style={styles.input}
-                />
+                <Pressable
+                  onPress={() => setActiveDatePicker('recurringStart')}
+                  style={styles.dateButton}
+                >
+                  <CalendarDays size={15} color={colors.stone500} />
+                  <Text style={styles.dateButtonText}>
+                    {formatDateLabel(recurringStartDate)}
+                  </Text>
+                </Pressable>
               </Field>
 
               <Field label="Ends on (optional)">
-                <TextInput
-                  value={recurringEndDate}
-                  onChangeText={setRecurringEndDate}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor={colors.stone400}
-                  autoCapitalize="none"
-                  returnKeyType="done"
-                  onSubmitEditing={Keyboard.dismiss}
-                  style={styles.input}
-                />
+                <Pressable
+                  onPress={() => setActiveDatePicker('recurringEnd')}
+                  style={styles.dateButton}
+                >
+                  <CalendarDays size={15} color={colors.stone500} />
+                  <Text
+                    style={[
+                      styles.dateButtonText,
+                      !recurringEndDate && styles.dateButtonPlaceholder,
+                    ]}
+                  >
+                    {recurringEndDate ? formatDateLabel(recurringEndDate) : 'No end date'}
+                  </Text>
+                </Pressable>
               </Field>
             </View>
           ) : null}
@@ -407,6 +453,18 @@ export function TransactionForm({ onClose, transaction }: TransactionFormProps) 
           <Text style={styles.submitLabel}>{isEditing ? 'Save changes' : 'Add to ledger'}</Text>
         </Pressable>
       </View>
+
+      <DatePickerSheet
+        visible={Boolean(activeDatePicker)}
+        title={activeDateTitle}
+        value={activeDateValue}
+        min={activeDateMin}
+        allowClear={activeDatePicker === 'recurringEnd'}
+        clearLabel="No end date"
+        onSelect={handleDateSelect}
+        onClear={() => setRecurringEndDate('')}
+        onClose={() => setActiveDatePicker(null)}
+      />
 
       <Modal visible={showAddCategory} transparent animationType="slide">
         <AddCategorySheet
@@ -492,6 +550,22 @@ const createStyles = (colors: any) =>
       borderBottomWidth: 1,
       borderBottomColor: 'rgba(139,90,60,0.2)',
       color: colors.ink,
+    },
+    dateButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: 'rgba(139,90,60,0.2)',
+    },
+    dateButtonText: {
+      fontFamily: fonts.body,
+      fontSize: 15,
+      color: colors.ink,
+    },
+    dateButtonPlaceholder: {
+      color: colors.stone400,
     },
     chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
     chip: {

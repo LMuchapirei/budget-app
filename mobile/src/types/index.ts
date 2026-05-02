@@ -28,6 +28,109 @@ export interface RecurringSchedule {
   reminderDaysBefore?: number;
 }
 
+export type BudgetPeriod = 'monthly';
+
+export type BudgetStatus = 'safe' | 'warning' | 'over';
+
+export interface Budget {
+  id: string;
+  category: Category;
+  amount: number;
+  period: BudgetPeriod;
+  ledgerId?: string;
+  carryOver?: boolean;
+  createdAt: string;
+  notes?: string;
+}
+
+export interface BudgetProgress {
+  budget: Budget;
+  spent: number;
+  cap: number;
+  baseCap: number;
+  carryOverAmount: number;
+  percent: number;
+  status: BudgetStatus;
+  isConverted: boolean;
+  missingCurrencyCodes: string[];
+}
+
+export type GoalStatus = 'active' | 'paused' | 'completed';
+
+export type GoalPacing =
+  | 'on-track'
+  | 'behind'
+  | 'ahead'
+  | 'no-deadline'
+  | 'paused'
+  | 'complete';
+
+export interface Goal {
+  id: string;
+  name: string;
+  targetAmount: number;
+  currencyCode: string;
+  currencySymbol: string;
+  deadline?: string;
+  ledgerId?: string;
+  notes?: string;
+  status: GoalStatus;
+  createdAt: string;
+  completedAt?: string;
+}
+
+export interface GoalProgress {
+  goal: Goal;
+  saved: number;
+  remaining: number;
+  percent: number;
+  pacing: GoalPacing;
+  suggestedMonthly: number;
+  daysRemaining?: number;
+  currencyCode: string;
+  currencySymbol: string;
+  linkedLedgerName?: string;
+  linkedLedgerArchived?: boolean;
+  currencyMismatch?: boolean;
+}
+
+export type BillOccurrenceStatus = 'paid' | 'missed';
+
+export type BillDisplayStatus = 'upcoming' | 'due-today' | BillOccurrenceStatus;
+
+export interface BillOccurrenceRecord {
+  id: string;
+  recurringTransactionId: string;
+  dueDate: string;
+  status?: BillOccurrenceStatus;
+  markedAt?: string;
+  notificationId?: string;
+  notificationScheduledAt?: string;
+}
+
+export interface BillOccurrence {
+  id: string;
+  source: Transaction;
+  dueDate: string;
+  amount: number;
+  status: BillDisplayStatus;
+  manualStatus?: BillOccurrenceStatus;
+  daysUntilDue: number;
+  reminderDaysBefore: number;
+  ledgerName?: string;
+  ledgerArchived?: boolean;
+  currencyCode: string;
+  currencySymbol: string;
+  notificationId?: string;
+}
+
+export type BillNotificationStatus = 'unknown' | 'granted' | 'denied' | 'error';
+
+export interface BillNotificationSyncResult {
+  scheduled: number;
+  skipped: number;
+}
+
 export interface CustomCategory {
   id: string;
   title: string;
@@ -83,7 +186,7 @@ export interface TransactionEditHistory {
   projectionAnnualDelta: number;
 }
 
-export type ViewTab = 'dashboard' | 'projections' | 'reports' | 'settings';
+export type ViewTab = 'dashboard' | 'bills' | 'projections' | 'reports' | 'settings';
 
 export interface Stats {
   income: number;

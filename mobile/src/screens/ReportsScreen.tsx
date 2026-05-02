@@ -8,12 +8,15 @@ import { BarChart } from '../charts/BarChart';
 import { Section, Empty, Legend } from '../components/ui/Layout';
 import { Text } from 'react-native';
 import { fonts } from '../theme';
+import { AlertTriangle } from 'lucide-react-native';
 
 export function ReportsScreen() {
   const { colors } = useTheme();
   const {
     transactions,
     customCategories,
+    budgetProgress,
+    ledgers,
     reportingCurrency,
     formatReportingMoney,
     formatCompactMoney,
@@ -57,6 +60,13 @@ export function ReportsScreen() {
   }, [convertTransactionAmountToReporting, transactions]);
 
   const totalExpenses = byCategory.reduce((s, c) => s + c.value, 0);
+  const overBudget = useMemo(
+    () =>
+      budgetProgress
+        .filter((progress) => progress.status === 'over')
+        .sort((a, b) => b.percent - a.percent),
+    [budgetProgress],
+  );
   const chartW = width - 24 * 2 - 16 * 2;
 
   if (transactions.length === 0) {
@@ -65,6 +75,51 @@ export function ReportsScreen() {
 
   return (
     <View style={{ gap: 32 }}>
+      {overBudget.length > 0 ? (
+        <Section
+          title="Over Budget"
+          subtitle={`${overBudget.length} ${overBudget.length === 1 ? 'category' : 'categories'} in ${reportingCurrency.code}`}
+        >
+          <View style={{ gap: 10 }}>
+            {overBudget.map((progress) => {
+              const ledger = progress.budget.ledgerId
+                ? ledgers.find((item) => item.id === progress.budget.ledgerId)
+                : null;
+              const overBy = Math.max(0, progress.spent - progress.cap);
+              const pct = Math.round(progress.percent * 100);
+              return (
+                <View key={progress.budget.id} style={styles.alertCard}>
+                  <View style={styles.alertIcon}>
+                    <AlertTriangle size={16} color={colors.clay} />
+                  </View>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.alertTitle}>{progress.budget.category}</Text>
+                    <Text style={styles.alertMeta}>
+                      {ledger?.name ?? 'All accounts'} - {pct}% used
+                    </Text>
+                    <View style={styles.progressTrack}>
+                      <View
+                        style={[
+                          styles.progressFill,
+                          {
+                            width: `${Math.min(100, pct)}%`,
+                            backgroundColor: colorFor(progress.budget.category, customCategories),
+                          },
+                        ]}
+                      />
+                    </View>
+                  </View>
+                  <View style={styles.alertAmountGroup}>
+                    <Text style={styles.alertAmount}>{formatReportingMoney(overBy)}</Text>
+                    <Text style={styles.alertAmountLabel}>over</Text>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        </Section>
+      ) : null}
+
       <Section
         title="Spending by Category"
         subtitle={`${formatReportingMoney(totalExpenses)} total in ${reportingCurrency.code}`}
@@ -178,4 +233,50 @@ const createStyles = (colors: any) =>
       overflow: 'hidden',
     },
     progressFill: { height: 4, borderRadius: 2 },
+    alertCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      backgroundColor: colors.cream,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: colors.borderSoft,
+      padding: 14,
+    },
+    alertIcon: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      backgroundColor: colors.paper,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    alertTitle: {
+      fontFamily: fonts.display,
+      fontSize: 15,
+      color: colors.ink,
+    },
+    alertMeta: {
+      fontFamily: fonts.body,
+      fontSize: 11,
+      color: colors.stone500,
+      marginTop: 2,
+      marginBottom: 7,
+    },
+    alertAmountGroup: {
+      alignItems: 'flex-end',
+      gap: 2,
+    },
+    alertAmount: {
+      fontFamily: fonts.displayLight,
+      fontSize: 17,
+      color: colors.clay,
+    },
+    alertAmountLabel: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: 10,
+      letterSpacing: 0.8,
+      textTransform: 'uppercase',
+      color: colors.stone500,
+    },
   });

@@ -10,9 +10,12 @@ import {
 } from 'react-native';
 import {
   Archive,
+  CheckCircle2,
   CreditCard,
+  Flag,
   Pencil,
   Plus,
+  Target,
   TrendingUp,
   TrendingDown,
   Wallet,
@@ -25,8 +28,19 @@ import { StatCard } from '../components/ui/StatCard';
 import { Section, Empty, Legend } from '../components/ui/Layout';
 import { TxRow } from '../components/ui/TxRow';
 import { LedgerSheet } from '../components/forms/LedgerSheet';
-import type { LedgerAccount, Transaction, TxType, FxRateStatus } from '../types';
-import { fonts } from '../theme';
+import { BudgetSheet } from '../components/forms/BudgetSheet';
+import { GoalSheet } from '../components/forms/GoalSheet';
+import type {
+  Budget,
+  BudgetProgress,
+  Goal,
+  GoalProgress,
+  LedgerAccount,
+  Transaction,
+  TxType,
+  FxRateStatus,
+} from '../types';
+import { colorFor, fonts } from '../theme';
 
 type EntryTab = 'all' | TxType;
 
@@ -85,12 +99,16 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
     setActiveLedger,
     stats,
     customCategories,
+    budgetProgress,
+    goalProgress,
+    markGoalComplete,
     dateFilter,
     reportingCurrency,
     fxRates,
     fxStatus,
     fxError,
     formatActiveMoney,
+    formatReportingMoney,
     formatCompactMoney,
     convertAmountToReporting,
     convertTransactionAmountToReporting,
@@ -105,10 +123,35 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
     { mode: 'add' } | { mode: 'edit'; ledger: LedgerAccount } | null
   >(null);
   const [showArchivedSheet, setShowArchivedSheet] = useState(false);
+  const [budgetSheet, setBudgetSheet] = useState<
+    { mode: 'add' } | { mode: 'edit'; budget: Budget } | null
+  >(null);
+  const [goalSheet, setGoalSheet] = useState<
+    { mode: 'add' } | { mode: 'edit'; goal: Goal } | null
+  >(null);
+  const [showCompletedGoals, setShowCompletedGoals] = useState(false);
+
+  const visibleBudgets = useMemo(() => {
+    if (activeLedgerId === ALL_LEDGER_ID) return budgetProgress;
+    return budgetProgress.filter(
+      (item) =>
+        !item.budget.ledgerId || item.budget.ledgerId === activeLedgerId,
+    );
+  }, [budgetProgress, activeLedgerId]);
 
   const archivedLedgers = useMemo(
     () => ledgers.filter((l) => l.archived),
     [ledgers],
+  );
+
+  const activeGoalProgress = useMemo(
+    () => goalProgress.filter((item) => item.goal.status !== 'completed'),
+    [goalProgress],
+  );
+
+  const completedGoalProgress = useMemo(
+    () => goalProgress.filter((item) => item.goal.status === 'completed'),
+    [goalProgress],
   );
 
   // Transactions filtered to the active date range
@@ -406,6 +449,101 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
       </Section>
 
       <Section
+        title="Budgets"
+        subtitle={
+          visibleBudgets.length > 0
+            ? `${visibleBudgets.length} active`
+            : 'this month'
+        }
+      >
+        {visibleBudgets.length === 0 ? (
+          <Pressable
+            onPress={() => setBudgetSheet({ mode: 'add' })}
+            style={styles.budgetEmpty}
+          >
+            <Target size={20} color={colors.rust} />
+            <Text style={styles.budgetEmptyTitle}>Set your first budget</Text>
+            <Text style={styles.budgetEmptyCopy}>
+              Cap monthly spending per category and watch your progress.
+            </Text>
+          </Pressable>
+        ) : (
+          <View style={{ gap: 10 }}>
+            {visibleBudgets.map((progress) => (
+              <BudgetProgressCard
+                key={progress.budget.id}
+                progress={progress}
+                ledgers={ledgers}
+                onPress={() =>
+                  setBudgetSheet({ mode: 'edit', budget: progress.budget })
+                }
+                formatMoney={formatReportingMoney}
+                customCategories={customCategories}
+              />
+            ))}
+            <Pressable
+              onPress={() => setBudgetSheet({ mode: 'add' })}
+              style={styles.budgetAddRow}
+            >
+              <Plus size={14} color={colors.rust} />
+              <Text style={styles.budgetAddLabel}>Add a budget</Text>
+            </Pressable>
+          </View>
+        )}
+      </Section>
+
+      <Section
+        title="Goals"
+        subtitle={
+          activeGoalProgress.length > 0
+            ? `${activeGoalProgress.length} tracking`
+            : 'savings targets'
+        }
+      >
+        {activeGoalProgress.length === 0 ? (
+          <Pressable
+            onPress={() => setGoalSheet({ mode: 'add' })}
+            style={styles.goalEmpty}
+          >
+            <Flag size={20} color={colors.rust} />
+            <Text style={styles.budgetEmptyTitle}>Create a savings goal</Text>
+            <Text style={styles.budgetEmptyCopy}>
+              Link a savings account and track progress automatically.
+            </Text>
+          </Pressable>
+        ) : (
+          <View style={{ gap: 10 }}>
+            {activeGoalProgress.map((progress) => (
+              <GoalProgressCard
+                key={progress.goal.id}
+                progress={progress}
+                onPress={() => setGoalSheet({ mode: 'edit', goal: progress.goal })}
+                onMarkComplete={() => markGoalComplete(progress.goal.id)}
+              />
+            ))}
+            <Pressable
+              onPress={() => setGoalSheet({ mode: 'add' })}
+              style={styles.budgetAddRow}
+            >
+              <Plus size={14} color={colors.rust} />
+              <Text style={styles.budgetAddLabel}>Add a goal</Text>
+            </Pressable>
+          </View>
+        )}
+        {completedGoalProgress.length > 0 ? (
+          <Pressable
+            onPress={() => setShowCompletedGoals(true)}
+            style={styles.completedGoalsFooter}
+          >
+            <CheckCircle2 size={14} color={colors.stone500} />
+            <Text style={styles.completedGoalsFooterLabel}>
+              {completedGoalProgress.length} completed
+            </Text>
+          </Pressable>
+        ) : null}
+      </Section>
+
+      <Section
         title="Recent Entries"
         subtitle={`${filteredEntries.length} shown`}
       >
@@ -462,6 +600,20 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
         onClose={() => setLedgerSheet(null)}
       />
 
+      <BudgetSheet
+        visible={budgetSheet !== null}
+        mode={budgetSheet?.mode ?? 'add'}
+        budget={budgetSheet?.mode === 'edit' ? budgetSheet.budget : null}
+        onClose={() => setBudgetSheet(null)}
+      />
+
+      <GoalSheet
+        visible={goalSheet !== null}
+        mode={goalSheet?.mode ?? 'add'}
+        goal={goalSheet?.mode === 'edit' ? goalSheet.goal : null}
+        onClose={() => setGoalSheet(null)}
+      />
+
       <ArchivedLedgersSheet
         visible={showArchivedSheet}
         ledgers={archivedLedgers}
@@ -469,6 +621,16 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
         onPick={(ledger) => {
           setShowArchivedSheet(false);
           setLedgerSheet({ mode: 'edit', ledger });
+        }}
+      />
+
+      <CompletedGoalsSheet
+        visible={showCompletedGoals}
+        goals={completedGoalProgress}
+        onClose={() => setShowCompletedGoals(false)}
+        onPick={(goal) => {
+          setShowCompletedGoals(false);
+          setGoalSheet({ mode: 'edit', goal });
         }}
       />
     </View>
@@ -522,6 +684,298 @@ function ArchivedLedgersSheet({
                     <Text style={styles.archivedRowMeta}>
                       {ledger.currencyCode}
                       {ledger.description ? ` - ${ledger.description}` : ''}
+                    </Text>
+                  </View>
+                  <Pencil size={14} color={colors.stone500} />
+                </Pressable>
+              ))}
+            </View>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function BudgetProgressCard({
+  progress,
+  ledgers,
+  onPress,
+  formatMoney,
+  customCategories,
+}: {
+  progress: BudgetProgress;
+  ledgers: LedgerAccount[];
+  onPress: () => void;
+  formatMoney: (n: number) => string;
+  customCategories: { title: string; color: string }[];
+}) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { budget, spent, cap, percent, status, missingCurrencyCodes, carryOverAmount } = progress;
+  const ledger = budget.ledgerId
+    ? ledgers.find((l) => l.id === budget.ledgerId)
+    : null;
+  const accent =
+    status === 'over' ? colors.clay : status === 'warning' ? colors.rust : colors.moss;
+  const fillWidth = `${Math.min(100, Math.max(percent * 100, 0))}%` as any;
+  const remaining = cap - spent;
+
+  return (
+    <Pressable onPress={onPress} style={styles.budgetCard}>
+      <View style={styles.budgetCardHead}>
+        <View style={styles.budgetCardTitleGroup}>
+          <View
+            style={[
+              styles.budgetCategoryDot,
+              { backgroundColor: colorFor(budget.category, customCategories as any) },
+            ]}
+          />
+          <Text style={styles.budgetCardTitle}>{budget.category}</Text>
+          {ledger ? (
+            <View style={[styles.budgetLedgerPill, { borderColor: ledger.color || colors.borderSoft }]}>
+              <Text style={styles.budgetLedgerPillLabel}>{ledger.name}</Text>
+            </View>
+          ) : null}
+        </View>
+        <Text
+          style={[
+            styles.budgetStatusLabel,
+            { color: accent },
+          ]}
+        >
+          {status === 'over'
+            ? 'Over'
+            : status === 'warning'
+            ? `${Math.round(percent * 100)}%`
+            : `${Math.round(percent * 100)}%`}
+        </Text>
+      </View>
+
+      <View style={styles.budgetBarTrack}>
+        <View
+          style={[
+            styles.budgetBarFill,
+            { width: fillWidth, backgroundColor: accent },
+          ]}
+        />
+      </View>
+
+      <View style={styles.budgetMetaRow}>
+        <Text style={styles.budgetMetaPrimary}>
+          {formatMoney(spent)} of {formatMoney(cap)}
+        </Text>
+        <Text
+          style={[
+            styles.budgetMetaSecondary,
+            { color: remaining < 0 ? colors.clay : colors.stone500 },
+          ]}
+        >
+          {remaining < 0
+            ? `Over by ${formatMoney(Math.abs(remaining))}`
+            : `${formatMoney(Math.max(remaining, 0))} left`}
+        </Text>
+      </View>
+
+      {budget.carryOver && Math.abs(carryOverAmount) > 0.005 ? (
+        <Text
+          style={[
+            styles.budgetWarning,
+            { color: carryOverAmount < 0 ? colors.clay : colors.stone500 },
+          ]}
+        >
+          Carry-over {carryOverAmount >= 0 ? '+' : '-'}
+          {formatMoney(Math.abs(carryOverAmount))}
+        </Text>
+      ) : null}
+
+      {missingCurrencyCodes.length > 0 ? (
+        <Text style={styles.budgetWarning}>
+          Estimate: missing rates for {missingCurrencyCodes.join(', ')}
+        </Text>
+      ) : null}
+    </Pressable>
+  );
+}
+
+function formatGoalMoney(value: number, symbol: string) {
+  return `${symbol}${Math.abs(value).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+function goalPacingLabel(progress: GoalProgress) {
+  if (progress.pacing === 'complete') return 'Ready';
+  if (progress.pacing === 'paused') return 'Paused';
+  if (progress.pacing === 'behind') return 'Behind';
+  if (progress.pacing === 'ahead') return 'Ahead';
+  if (progress.pacing === 'on-track') return 'On track';
+  return 'No deadline';
+}
+
+function deadlineLabel(progress: GoalProgress) {
+  if (progress.pacing === 'complete') return 'Target reached';
+  if (progress.goal.status === 'paused') return 'Paused';
+  if (progress.daysRemaining == null) return 'No deadline';
+  if (progress.daysRemaining < 0) return 'Deadline passed';
+  if (progress.daysRemaining === 0) return 'Due today';
+  return `${progress.daysRemaining} days left`;
+}
+
+function GoalProgressCard({
+  progress,
+  onPress,
+  onMarkComplete,
+}: {
+  progress: GoalProgress;
+  onPress: () => void;
+  onMarkComplete: () => void;
+}) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { goal, saved, remaining, percent, pacing, suggestedMonthly } = progress;
+  const completeReady = pacing === 'complete' && goal.status === 'active';
+  const fillWidth = `${Math.min(100, Math.max(percent * 100, 0))}%` as any;
+  const accent =
+    pacing === 'behind'
+      ? colors.clay
+      : pacing === 'paused'
+      ? colors.stone500
+      : pacing === 'complete'
+      ? colors.rust
+      : colors.moss;
+
+  return (
+    <Pressable onPress={onPress} style={styles.goalCard}>
+      <View style={styles.goalHead}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={styles.goalTitle} numberOfLines={2}>
+            {goal.name}
+          </Text>
+          <View style={styles.goalMetaRow}>
+            <View style={[styles.goalStatusPill, { borderColor: accent }]}>
+              <Text style={[styles.goalStatusLabel, { color: accent }]}>
+                {goalPacingLabel(progress)}
+              </Text>
+            </View>
+            <Text style={styles.goalLedgerText} numberOfLines={1}>
+              {progress.linkedLedgerName ?? 'Link an account'}
+            </Text>
+          </View>
+        </View>
+        <Text style={[styles.goalPercent, { color: accent }]}>
+          {Math.round(Math.max(percent, 0) * 100)}%
+        </Text>
+      </View>
+
+      <View style={styles.budgetBarTrack}>
+        <View
+          style={[
+            styles.budgetBarFill,
+            { width: fillWidth, backgroundColor: accent },
+          ]}
+        />
+      </View>
+
+      <View style={styles.goalAmountRow}>
+        <Text style={styles.budgetMetaPrimary}>
+          {formatGoalMoney(saved, progress.currencySymbol)} of{' '}
+          {formatGoalMoney(goal.targetAmount, progress.currencySymbol)}
+        </Text>
+        <Text
+          style={[
+            styles.budgetMetaSecondary,
+            { color: remaining <= 0 ? colors.rust : colors.stone500 },
+          ]}
+        >
+          {remaining <= 0
+            ? 'Ready to complete'
+            : `${formatGoalMoney(remaining, progress.currencySymbol)} left`}
+        </Text>
+      </View>
+
+      <View style={styles.goalDetailRow}>
+        <Text style={styles.goalDetailText}>{deadlineLabel(progress)}</Text>
+        {suggestedMonthly > 0 ? (
+          <Text style={styles.goalDetailText}>
+            {formatGoalMoney(suggestedMonthly, progress.currencySymbol)} / month
+          </Text>
+        ) : null}
+      </View>
+
+      {progress.linkedLedgerArchived ? (
+        <Text style={styles.budgetWarning}>Linked account archived.</Text>
+      ) : null}
+      {!goal.ledgerId ? (
+        <Text style={styles.budgetWarning}>Link an account to start tracking.</Text>
+      ) : null}
+      {progress.currencyMismatch ? (
+        <Text style={[styles.budgetWarning, { color: colors.clay }]}>
+          Account currency changed. Re-edit this goal.
+        </Text>
+      ) : null}
+
+      {completeReady ? (
+        <Pressable
+          onPress={(event: any) => {
+            event?.stopPropagation?.();
+            onMarkComplete();
+          }}
+          style={styles.goalCompleteButton}
+        >
+          <CheckCircle2 size={14} color={colors.paper} />
+          <Text style={styles.goalCompleteButtonLabel}>Mark complete</Text>
+        </Pressable>
+      ) : null}
+    </Pressable>
+  );
+}
+
+function CompletedGoalsSheet({
+  visible,
+  goals,
+  onClose,
+  onPick,
+}: {
+  visible: boolean;
+  goals: GoalProgress[];
+  onClose: () => void;
+  onPick: (goal: Goal) => void;
+}) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.modalRoot}>
+        <Pressable style={styles.modalBackdrop} onPress={onClose} />
+        <View style={styles.sheet}>
+          <View style={styles.sheetHandle} />
+          <View style={styles.sheetHead}>
+            <Text style={styles.sheetTitle}>Completed goals</Text>
+            <Pressable onPress={onClose} hitSlop={8}>
+              <X size={20} color={colors.stone500} />
+            </Pressable>
+          </View>
+          {goals.length === 0 ? (
+            <Text style={styles.archivedEmpty}>No completed goals yet.</Text>
+          ) : (
+            <View style={{ gap: 10 }}>
+              {goals.map((progress) => (
+                <Pressable
+                  key={progress.goal.id}
+                  onPress={() => onPick(progress.goal)}
+                  style={styles.completedGoalRow}
+                >
+                  <CheckCircle2 size={16} color={colors.rust} />
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.archivedRowName}>{progress.goal.name}</Text>
+                    <Text style={styles.archivedRowMeta}>
+                      {formatGoalMoney(progress.saved, progress.currencySymbol)} saved
+                      {progress.goal.completedAt
+                        ? ` - completed ${new Date(progress.goal.completedAt).toLocaleDateString()}`
+                        : ''}
                     </Text>
                   </View>
                   <Pencil size={14} color={colors.stone500} />
@@ -724,6 +1178,242 @@ const createStyles = (colors: any) =>
       color: colors.stone500,
       textAlign: 'center',
       paddingVertical: 16,
+    },
+    budgetEmpty: {
+      backgroundColor: colors.cream,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: colors.borderSoft,
+      borderStyle: 'dashed',
+      padding: 18,
+      gap: 6,
+      alignItems: 'flex-start',
+    },
+    budgetEmptyTitle: {
+      fontFamily: fonts.displayLight,
+      fontSize: 18,
+      color: colors.ink,
+      marginTop: 4,
+    },
+    budgetEmptyCopy: {
+      fontFamily: fonts.body,
+      fontSize: 12,
+      color: colors.stone500,
+    },
+    budgetAddRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      borderRadius: 14,
+      backgroundColor: colors.paper,
+      borderWidth: 1,
+      borderColor: colors.borderSoft,
+      borderStyle: 'dashed',
+      alignSelf: 'flex-start',
+    },
+    budgetAddLabel: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: 12,
+      color: colors.rust,
+    },
+    budgetCard: {
+      backgroundColor: colors.cream,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: colors.borderSoft,
+      padding: 14,
+      gap: 10,
+    },
+    budgetCardHead: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 12,
+    },
+    budgetCardTitleGroup: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      flexWrap: 'wrap',
+    },
+    budgetCategoryDot: {
+      width: 9,
+      height: 9,
+      borderRadius: 5,
+    },
+    budgetCardTitle: {
+      fontFamily: fonts.displayMedium,
+      fontSize: 16,
+      color: colors.ink,
+    },
+    budgetLedgerPill: {
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+      borderRadius: 999,
+      borderWidth: 1,
+    },
+    budgetLedgerPillLabel: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: 10,
+      letterSpacing: 0.6,
+      color: colors.stone600,
+    },
+    budgetStatusLabel: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: 12,
+      letterSpacing: 0.5,
+    },
+    budgetBarTrack: {
+      height: 6,
+      borderRadius: 999,
+      backgroundColor: colors.chip,
+      overflow: 'hidden',
+    },
+    budgetBarFill: {
+      height: '100%',
+      borderRadius: 999,
+    },
+    budgetMetaRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 8,
+    },
+    budgetMetaPrimary: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: 12,
+      color: colors.ink,
+    },
+    budgetMetaSecondary: {
+      fontFamily: fonts.body,
+      fontSize: 11,
+    },
+    budgetWarning: {
+      fontFamily: fonts.body,
+      fontSize: 11,
+      color: colors.stone500,
+      fontStyle: 'italic',
+    },
+    goalEmpty: {
+      backgroundColor: colors.cream,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: colors.borderSoft,
+      borderStyle: 'dashed',
+      padding: 18,
+      gap: 6,
+      alignItems: 'flex-start',
+    },
+    goalCard: {
+      backgroundColor: colors.cream,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: colors.borderSoft,
+      padding: 14,
+      gap: 10,
+    },
+    goalHead: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      justifyContent: 'space-between',
+      gap: 12,
+    },
+    goalTitle: {
+      fontFamily: fonts.displayMedium,
+      fontSize: 17,
+      color: colors.ink,
+      lineHeight: 22,
+    },
+    goalMetaRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flexWrap: 'wrap',
+      gap: 8,
+      marginTop: 6,
+    },
+    goalStatusPill: {
+      borderWidth: 1,
+      borderRadius: 999,
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+    },
+    goalStatusLabel: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: 10,
+      letterSpacing: 0.6,
+      textTransform: 'uppercase',
+    },
+    goalLedgerText: {
+      flexShrink: 1,
+      fontFamily: fonts.body,
+      fontSize: 11,
+      color: colors.stone500,
+    },
+    goalPercent: {
+      fontFamily: fonts.displayLight,
+      fontSize: 22,
+    },
+    goalAmountRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 8,
+    },
+    goalDetailRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      gap: 8,
+      flexWrap: 'wrap',
+    },
+    goalDetailText: {
+      fontFamily: fonts.body,
+      fontSize: 11,
+      color: colors.stone500,
+    },
+    goalCompleteButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      paddingVertical: 11,
+      borderRadius: 999,
+      backgroundColor: colors.rust,
+      marginTop: 2,
+    },
+    goalCompleteButtonLabel: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: 12,
+      color: colors.paper,
+    },
+    completedGoalsFooter: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      alignSelf: 'flex-start',
+      gap: 6,
+      marginTop: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: 999,
+      backgroundColor: colors.chip,
+    },
+    completedGoalsFooterLabel: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: 12,
+      color: colors.stone500,
+    },
+    completedGoalRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 14,
+      borderRadius: 14,
+      backgroundColor: colors.paper,
+      borderWidth: 1,
+      borderColor: colors.borderSoft,
     },
     card: {
       backgroundColor: colors.cream,

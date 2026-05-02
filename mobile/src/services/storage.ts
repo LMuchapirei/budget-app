@@ -6,6 +6,9 @@ import type {
   LedgerAccount,
   ReportingCurrency,
   ExchangeRatesCache,
+  Budget,
+  Goal,
+  BillOccurrenceRecord,
 } from '../types';
 
 export interface DataService {
@@ -35,10 +38,19 @@ export interface DataService {
   
   getCategories(): Promise<CustomCategory[]>;
   saveCategories(cats: CustomCategory[]): Promise<void>;
-  
+
+  getBudgets(): Promise<Budget[]>;
+  saveBudgets(budgets: Budget[]): Promise<void>;
+
+  getGoals(): Promise<Goal[]>;
+  saveGoals(goals: Goal[]): Promise<void>;
+
+  getBillOccurrenceRecords(): Promise<BillOccurrenceRecord[]>;
+  saveBillOccurrenceRecords(records: BillOccurrenceRecord[]): Promise<void>;
+
   getAppLock(): Promise<boolean>;
   setAppLock(enabled: boolean): Promise<void>;
-  
+
   clearAllData(): Promise<void>;
 }
 
@@ -52,6 +64,9 @@ class LocalDataService implements DataService {
   private readonly CURRENCY_KEY = 'budget:currency:v1';
   private readonly REPORTING_CURRENCY_KEY = 'budget:reporting-currency:v1';
   private readonly EXCHANGE_RATES_KEY = 'budget:exchange-rates:v1';
+  private readonly BUDGETS_KEY = 'budget:budgets:v1';
+  private readonly GOALS_KEY = 'budget:goals:v1';
+  private readonly BILL_OCCURRENCES_KEY = 'budget:bill-occurrences:v1';
   private readonly APPLOCK_KEY = 'budget:applock:v1';
 
   async getTheme(): Promise<string | null> {
@@ -162,6 +177,48 @@ class LocalDataService implements DataService {
     await AsyncStorage.setItem(this.CAT_STORAGE_KEY, JSON.stringify(cats));
   }
 
+  async getBudgets(): Promise<Budget[]> {
+    const raw = await AsyncStorage.getItem(this.BUDGETS_KEY);
+    if (!raw) return [];
+    try {
+      return JSON.parse(raw) as Budget[];
+    } catch {
+      return [];
+    }
+  }
+
+  async saveBudgets(budgets: Budget[]): Promise<void> {
+    await AsyncStorage.setItem(this.BUDGETS_KEY, JSON.stringify(budgets));
+  }
+
+  async getGoals(): Promise<Goal[]> {
+    const raw = await AsyncStorage.getItem(this.GOALS_KEY);
+    if (!raw) return [];
+    try {
+      return JSON.parse(raw) as Goal[];
+    } catch {
+      return [];
+    }
+  }
+
+  async saveGoals(goals: Goal[]): Promise<void> {
+    await AsyncStorage.setItem(this.GOALS_KEY, JSON.stringify(goals));
+  }
+
+  async getBillOccurrenceRecords(): Promise<BillOccurrenceRecord[]> {
+    const raw = await AsyncStorage.getItem(this.BILL_OCCURRENCES_KEY);
+    if (!raw) return [];
+    try {
+      return JSON.parse(raw) as BillOccurrenceRecord[];
+    } catch {
+      return [];
+    }
+  }
+
+  async saveBillOccurrenceRecords(records: BillOccurrenceRecord[]): Promise<void> {
+    await AsyncStorage.setItem(this.BILL_OCCURRENCES_KEY, JSON.stringify(records));
+  }
+
   async getAppLock(): Promise<boolean> {
     const val = await AsyncStorage.getItem(this.APPLOCK_KEY);
     return val === 'true';
@@ -181,6 +238,9 @@ class LocalDataService implements DataService {
       this.CURRENCY_KEY,
       this.REPORTING_CURRENCY_KEY,
       this.EXCHANGE_RATES_KEY,
+      this.BUDGETS_KEY,
+      this.GOALS_KEY,
+      this.BILL_OCCURRENCES_KEY,
     ]);
   }
 }

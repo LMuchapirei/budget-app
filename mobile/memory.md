@@ -18,6 +18,7 @@ Last updated: 2026-05-02
 - Reports tab with spending by category and monthly comparison.
 - Projections tab based on recurring schedules.
 - Recurring schedule engine for daily, weekly, monthly, and yearly schedules.
+- Dashboard monthly budgets, linked-ledger savings goals, and a Bills tab for recurring expense commitments.
 - Settings tab with theme, app lock, currency symbol, and clear data.
 
 ## Transaction Features
@@ -31,6 +32,7 @@ Last updated: 2026-05-02
   - recurring flag and recurring schedule
   - linked ledger/account via `ledgerId`
 - Transactions can be added and edited.
+- Recurring expense transactions appear as bill/subscription commitments in the Bills tab.
 - Editing writes a `TransactionEditHistory` record with:
   - before transaction
   - after transaction
@@ -66,7 +68,7 @@ Last updated: 2026-05-02
   - transaction form amount prefix
   - transaction row amount
   - transaction details amount
-- All Accounts still uses the app-level default currency because mixed-currency conversion needs exchange rates later.
+- All Accounts converts mixed-currency totals into the selected reporting currency using cached exchange rates when needed.
 
 ## Recent Fixes
 
@@ -85,21 +87,40 @@ Last updated: 2026-05-02
 - `src/services/storage.ts`: AsyncStorage persistence.
 - `src/types/index.ts`: data models.
 - `src/screens/DashboardScreen.tsx`: Ledger tab UI, account selector, add account sheet, cash flow, recent entries.
+- `src/screens/BillsScreen.tsx`: bills/subscriptions tracker with upcoming, paid, and missed occurrence views.
 - `src/components/forms/TransactionForm.tsx`: add/edit transaction sheet.
+- `src/components/forms/DatePickerSheet.tsx`: reusable calendar picker for single date fields.
 - `src/components/forms/LedgerSheet.tsx`: add/edit account sheet with archive, set-default, and delete-with-reassignment.
+- `src/components/forms/BudgetSheet.tsx`: add/edit/delete monthly category budget sheet with optional per-ledger scope and carry-over flag.
+- `src/components/forms/GoalSheet.tsx`: add/edit/delete savings goals linked to active accounts with pause/resume and mark-complete actions.
 - `src/components/ui/TxRow.tsx`: transaction row gestures, detail sheet, audit trail.
 - `src/charts/AreaChart.tsx`: cash flow chart rendering.
 - `src/utils/recurring.ts`: recurring schedule engine, occurrence generation, due dates, monthly impact estimates.
+- `src/services/billNotifications.ts`: local bill reminder permission, scheduling, and cancellation through Expo Notifications.
 
 ## Known Follow-Ups
 
 - Add transfer transactions between accounts.
-- Add exchange-rate handling before summing mixed currencies in All Accounts.
-- Add a proper date picker to transaction form.
 - Clean remaining encoded text artifacts in older screens if they appear in the UI.
 - Add tests once the feature set settles.
 
 ## Partial Features
+
+- Budgets:
+  - Monthly per-category caps with optional per-account scope.
+  - Spent / cap / remaining shown on the dashboard with progress bars.
+  - Status colors: safe under 80%, warning 80-99%, over at or above 100%.
+  - Spent is calculated for the current calendar month, with reporting-currency conversion when the budget is "All accounts".
+  - Carry-over applies unused prior-month budget room to the current cap and reduces the cap after prior overspend.
+  - Reports surface over-budget categories.
+
+- Savings goals:
+  - Goals are linked-ledger-only in v1.
+  - A linked account can back one goal at a time.
+  - Saved amount is derived from ledger running balance: opening balance plus income minus expenses.
+  - Goals support optional deadlines, pause/resume, delete, and manual mark-complete.
+  - Goal cards show saved / target, remaining, pacing, deadline countdown, suggested monthly contribution, and archived/currency warnings.
+  - Completed goals collapse into a completed footer/list on the Dashboard.
 
 - Ledger/account management:
   - Accounts can be created, edited, archived, restored, and deleted from the dashboard.
@@ -111,14 +132,20 @@ Last updated: 2026-05-02
 - Multi-currency support:
   - Individual accounts can have their own currency symbol.
   - Transaction rows and selected account totals use account currency.
-  - All Accounts uses the global/default currency and does not convert mixed currencies.
+  - All Accounts, budgets, reports, and projections convert mixed-currency values into the selected reporting currency where appropriate.
 - Recurring transactions:
   - Transactions can be marked as recurring.
   - Recurring schedules support daily, weekly, monthly, and yearly frequencies.
   - Schedules support interval, first due date, optional end date, and reminder lead days.
   - The engine materializes due recurring entries locally when the app loads or a recurring transaction is saved.
   - Projections read generated future occurrences for the next 12 months.
-  - Reminder lead days are stored and displayed, but local notifications are not wired yet.
+  - Reminder lead days are used by the Bills tab for local notification scheduling.
+- Bills and subscriptions:
+  - The Bills tab derives commitments from recurring expense transactions.
+  - Bills show due soon, upcoming, paid, and missed filters.
+  - Each occurrence can be marked paid or missed, with undo.
+  - Local reminders use `expo-notifications` and the recurring schedule's reminder lead days.
+  - Occurrence status is stored separately from transactions so Wave 2 recurring controls can expand it later.
 - Transaction audit trail:
   - Edits are recorded with before/after data and projection impact.
   - Audit trail is shown in transaction details and projections.
@@ -129,8 +156,8 @@ Last updated: 2026-05-02
   - Shows account, currency, masked number, amount, metadata, and audit history.
   - No notes, attachments, merchant, payment method, or tags yet.
 - Transaction form:
-  - Supports add/edit, account selection, category selection, date text entry, and recurring schedule setup.
-  - Date is still plain text rather than a picker.
+  - Supports add/edit, account selection, category selection, calendar date picking, and recurring schedule setup.
+  - Entry dates and recurring first/end dates use the shared calendar picker.
   - Amount parsing is basic and does not handle commas, symbols, or locale-specific formats.
 - Categories:
   - Built-in categories exist.
@@ -160,20 +187,9 @@ Last updated: 2026-05-02
   - Transfer money between accounts.
   - Represent transfer as linked debit/credit entries.
   - Exclude transfers from income/expense reports where appropriate.
-- Budgeting:
-  - Monthly category budgets.
-  - Account-specific budgets.
-  - Budget progress bars and over-budget warnings.
-  - Carry-over budgets.
 - Savings goals:
-  - Goal name, target amount, deadline, linked account.
-  - Contribution tracking.
-  - Suggested monthly contribution.
-- Bills and subscriptions:
-  - Bill/subscription tracker.
-  - Upcoming due dates.
-  - Local notifications.
-  - Missed/paid status.
+  - Manual contribution mode.
+  - Historical goal progress chart.
 - Recurring engine:
   - Confirmation flow before posting generated entries.
   - Skip/postpone one occurrence.

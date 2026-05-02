@@ -9,6 +9,18 @@ import type {
   ReportingCurrency,
   ExchangeRatesCache,
   FxRateStatus,
+  Budget,
+  BudgetProgress,
+  BudgetStatus,
+  Goal,
+  GoalProgress,
+  GoalPacing,
+  BillOccurrence,
+  BillDisplayStatus,
+  BillOccurrenceRecord,
+  BillOccurrenceStatus,
+  BillNotificationStatus,
+  BillNotificationSyncResult,
 } from '../types';
 import { storage } from '../services/storage';
 import {
@@ -26,7 +38,20 @@ import {
   formatCurrencyAmount,
   normalizeCurrencyCode,
 } from '../utils/currency';
-import { estimateMonthlyImpact, materializeRecurringTransactions } from '../utils/recurring';
+import {
+  addMonthsClamped,
+  estimateMonthlyImpact,
+  formatISODate,
+  generateRecurringOccurrences,
+  materializeRecurringTransactions,
+  normalizeRecurringSchedule,
+} from '../utils/recurring';
+import {
+  cancelBillReminder,
+  getBillNotificationPermission,
+  requestBillNotificationPermission as requestDeviceBillNotificationPermission,
+  scheduleBillReminder,
+} from '../services/billNotifications';
 
 export interface DateFilter {
   startDate: string; // YYYY-MM-DD
@@ -63,6 +88,29 @@ interface BudgetContextValue {
   addTransaction: (t: Omit<Transaction, 'id'>) => void;
   updateTransaction: (t: Transaction) => void;
   removeTransaction: (id: string) => void;
+  budgets: Budget[];
+  budgetProgress: BudgetProgress[];
+  addBudget: (b: Omit<Budget, 'id' | 'createdAt'>) => void;
+  updateBudget: (b: Budget) => void;
+  removeBudget: (id: string) => void;
+  goals: Goal[];
+  goalProgress: GoalProgress[];
+  addGoal: (g: Omit<Goal, 'id' | 'createdAt' | 'status' | 'completedAt'>) => void;
+  updateGoal: (g: Goal) => void;
+  removeGoal: (id: string) => void;
+  pauseGoal: (id: string) => void;
+  resumeGoal: (id: string) => void;
+  markGoalComplete: (id: string) => void;
+  ledgerBalance: (id: string) => number;
+  billOccurrences: BillOccurrence[];
+  billOccurrenceRecords: BillOccurrenceRecord[];
+  billNotificationStatus: BillNotificationStatus;
+  markBillPaid: (id: string) => void;
+  markBillMissed: (id: string) => void;
+  clearBillStatus: (id: string) => void;
+  refreshBillNotificationPermission: () => Promise<BillNotificationStatus>;
+  requestBillNotificationPermission: () => Promise<BillNotificationStatus>;
+  syncBillNotifications: () => Promise<BillNotificationSyncResult>;
   addCustomCategory: (c: CustomCategory) => void;
   setCurrency: (c: string) => void;
   setReportingCurrency: (currency: ReportingCurrency) => Promise<void>;
@@ -108,12 +156,65 @@ function maskAccountNumberValue(accountNumber?: string) {
   return `${'*'.repeat(Math.max(4, clean.length - visible.length))} ${visible}`;
 }
 
+function monthStart(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function addMonths(date: Date, count: number) {
+  return new Date(date.getFullYear(), date.getMonth() + count, 1);
+}
+
+function parseTransactionDate(value: string) {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(year || 1970, (month || 1) - 1, day || 1);
+}
+
+function parseBudgetDate(value: string) {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+}
+
+function parseLocalDate(value?: string) {
+  if (!value) return null;
+  const [year, month, day] = value.split('-').map(Number);
+  if (!year || !month || !day) return null;
+  const parsed = new Date(year, month - 1, day);
+  parsed.setHours(0, 0, 0, 0);
+  return parsed;
+}
+
+function daysBetween(start: Date, end: Date) {
+  const startDay = new Date(start);
+  const endDay = new Date(end);
+  startDay.setHours(0, 0, 0, 0);
+  endDay.setHours(0, 0, 0, 0);
+  return Math.ceil((endDay.getTime() - startDay.getTime()) / 86400000);
+}
+
+function billOccurrenceId(recurringTransactionId: string, dueDate: string) {
+  return `${recurringTransactionId}:${dueDate}`;
+}
+
+function parseBillOccurrenceId(id: string) {
+  const splitAt = id.lastIndexOf(':');
+  if (splitAt === -1) return { recurringTransactionId: id, dueDate: '' };
+  return {
+    recurringTransactionId: id.slice(0, splitAt),
+    dueDate: id.slice(splitAt + 1),
+  };
+}
+
 export function BudgetProvider({ children }: { children: React.ReactNode }) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [ledgers, setLedgers] = useState<LedgerAccount[]>([DEFAULT_LEDGER]);
   const [activeLedgerId, setActiveLedgerId] = useState<string>(ALL_LEDGER_ID);
   const [transactionEditHistory, setTransactionEditHistory] = useState<TransactionEditHistory[]>([]);
   const [customCategories, setCustomCategories] = useState<CustomCategory[]>([]);
+  const [budgets, setBudgets] = useState<Budget[]>([]);
+  const [goals, setGoals] = useState<Goal[]>([]);
+  const [billOccurrenceRecords, setBillOccurrenceRecords] = useState<BillOccurrenceRecord[]>([]);
+  const [billNotificationStatus, setBillNotificationStatus] =
+    useState<BillNotificationStatus>('unknown');
   const [reportingCurrency, setReportingCurrencyState] =
     useState<ReportingCurrency>(DEFAULT_REPORTING_CURRENCY);
   const [fxRates, setFxRates] = useState<ExchangeRatesCache | null>(null);
@@ -171,6 +272,17 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
         const cats = await storage.getCategories();
         if (cats) setCustomCategories(cats);
 
+        const savedBudgets = storage.getBudgets ? await storage.getBudgets() : [];
+        if (savedBudgets) setBudgets(savedBudgets);
+
+        const savedGoals = storage.getGoals ? await storage.getGoals() : [];
+        if (savedGoals) setGoals(savedGoals);
+
+        const savedBillOccurrenceRecords = storage.getBillOccurrenceRecords
+          ? await storage.getBillOccurrenceRecords()
+          : [];
+        if (savedBillOccurrenceRecords) setBillOccurrenceRecords(savedBillOccurrenceRecords);
+
         const savedReportingCurrency = await storage.getReportingCurrency();
         const legacyCurrencySymbol = await storage.getCurrency();
         const nextReportingCurrency = savedReportingCurrency
@@ -183,6 +295,8 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
 
         const cachedRates = await storage.getExchangeRatesCache();
         if (cachedRates) setFxRates(cachedRates);
+
+        setBillNotificationStatus(await getBillNotificationPermission());
       } catch {
         // First run
       }
@@ -221,6 +335,33 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     setTransactionEditHistory(next);
     try {
       await storage.saveTransactionEditHistory(next);
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
+  const persistBudgets = useCallback(async (next: Budget[]) => {
+    setBudgets(next);
+    try {
+      await storage.saveBudgets(next);
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
+  const persistGoals = useCallback(async (next: Goal[]) => {
+    setGoals(next);
+    try {
+      await storage.saveGoals(next);
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
+  const persistBillOccurrenceRecords = useCallback(async (next: BillOccurrenceRecord[]) => {
+    setBillOccurrenceRecords(next);
+    try {
+      await storage.saveBillOccurrenceRecords(next);
     } catch (e) {
       console.error(e);
     }
@@ -342,6 +483,11 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     }
 
     persistLedgers(ledgers.filter((l) => l.id !== id));
+    persistGoals(
+      goals.map((goal) =>
+        goal.ledgerId === id ? { ...goal, ledgerId: undefined } : goal,
+      ),
+    );
     if (activeLedgerId === id) setActiveLedger(ALL_LEDGER_ID);
   };
 
@@ -357,6 +503,18 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
       return Number(ledger?.openingBalance ?? 0);
     },
     [ledgers],
+  );
+
+  const ledgerBalance = useCallback(
+    (id: string) => {
+      const opening = ledgerOpeningBalance(id);
+      return transactions.reduce((sum, transaction) => {
+        if ((transaction.ledgerId ?? DEFAULT_LEDGER_ID) !== id) return sum;
+        const amount = Number(transaction.amount) || 0;
+        return sum + (transaction.type === 'income' ? amount : -amount);
+      }, opening);
+    },
+    [ledgerOpeningBalance, transactions],
   );
 
   const addTransaction = (t: Omit<Transaction, 'id'>) => {
@@ -397,6 +555,71 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     persistCategories([...customCategories, c]);
   };
 
+  const addBudget = (b: Omit<Budget, 'id' | 'createdAt'>) => {
+    const next: Budget = {
+      ...b,
+      id: `${Date.now()}-${b.category.toLowerCase().replace(/\s+/g, '-')}`,
+      createdAt: new Date().toISOString(),
+    };
+    persistBudgets([next, ...budgets]);
+  };
+
+  const updateBudget = (updated: Budget) => {
+    persistBudgets(budgets.map((b) => (b.id === updated.id ? updated : b)));
+  };
+
+  const removeBudget = (id: string) => {
+    persistBudgets(budgets.filter((b) => b.id !== id));
+  };
+
+  const addGoal = (g: Omit<Goal, 'id' | 'createdAt' | 'status' | 'completedAt'>) => {
+    const next: Goal = {
+      ...g,
+      id: `${Date.now()}-${g.name.toLowerCase().replace(/\s+/g, '-')}`,
+      status: 'active',
+      createdAt: new Date().toISOString(),
+    };
+    persistGoals([next, ...goals]);
+  };
+
+  const updateGoal = (updated: Goal) => {
+    persistGoals(goals.map((goal) => (goal.id === updated.id ? updated : goal)));
+  };
+
+  const removeGoal = (id: string) => {
+    persistGoals(goals.filter((goal) => goal.id !== id));
+  };
+
+  const pauseGoal = (id: string) => {
+    persistGoals(
+      goals.map((goal) =>
+        goal.id === id && goal.status === 'active'
+          ? { ...goal, status: 'paused', completedAt: undefined }
+          : goal,
+      ),
+    );
+  };
+
+  const resumeGoal = (id: string) => {
+    persistGoals(
+      goals.map((goal) =>
+        goal.id === id && goal.status === 'paused'
+          ? { ...goal, status: 'active', completedAt: undefined }
+          : goal,
+      ),
+    );
+  };
+
+  const markGoalComplete = (id: string) => {
+    persistGoals(
+      goals.map((goal) =>
+        goal.id === id
+          ? { ...goal, status: 'completed', completedAt: new Date().toISOString() }
+          : goal,
+      ),
+    );
+  };
+
   const setReportingCurrency = useCallback(async (nextCurrency: ReportingCurrency) => {
     const normalized = currencyOptionFromCode(nextCurrency.code);
     setReportingCurrencyState(normalized);
@@ -415,6 +638,10 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     setLedgers([DEFAULT_LEDGER]);
     setActiveLedgerId(ALL_LEDGER_ID);
     setCustomCategories([]);
+    setBudgets([]);
+    setGoals([]);
+    setBillOccurrenceRecords([]);
+    setBillNotificationStatus('unknown');
     setReportingCurrencyState(DEFAULT_REPORTING_CURRENCY);
     setFxRates(null);
     setFxStatus('idle');
@@ -484,6 +711,300 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     if (activeLedgerId === ALL_LEDGER_ID) return null;
     return ledgers.find((ledger) => ledger.id === activeLedgerId) ?? null;
   }, [ledgers, activeLedgerId]);
+
+  const budgetProgress = useMemo<BudgetProgress[]>(() => {
+    if (budgets.length === 0) return [];
+    const now = new Date();
+    const currentMonthStart = monthStart(now);
+    const nextMonthStart = addMonths(currentMonthStart, 1);
+
+    const spendForBudgetInRange = (
+      budget: Budget,
+      rangeStart: Date,
+      rangeEndExclusive: Date,
+      missing: Set<string>,
+    ) => {
+      return transactions.reduce((sum, t) => {
+        if (t.type !== 'expense') return sum;
+        if (t.category !== budget.category) return sum;
+        if (budget.ledgerId && (t.ledgerId ?? DEFAULT_LEDGER_ID) !== budget.ledgerId) return sum;
+        const d = parseTransactionDate(t.date);
+        if (d < rangeStart || d >= rangeEndExclusive) return sum;
+        const conversion = convertTransactionAmountToReporting(t);
+        if (!conversion.converted && conversion.missingCurrencyCode) {
+          missing.add(conversion.missingCurrencyCode);
+        }
+        return sum + conversion.amount;
+      }, 0);
+    };
+
+    return budgets.map((budget) => {
+      const missing = new Set<string>();
+      const baseCap = Number(budget.amount) || 0;
+      let carryOverAmount = 0;
+
+      if (budget.carryOver && baseCap > 0) {
+        let cursor = monthStart(parseBudgetDate(budget.createdAt));
+        while (cursor < currentMonthStart) {
+          const next = addMonths(cursor, 1);
+          carryOverAmount += baseCap - spendForBudgetInRange(budget, cursor, next, missing);
+          cursor = next;
+        }
+      }
+
+      const spent = spendForBudgetInRange(budget, currentMonthStart, nextMonthStart, missing);
+      const cap = Math.max(0, baseCap + carryOverAmount);
+      const percent = cap > 0 ? spent / cap : spent > 0 ? 1 : 0;
+      let status: BudgetStatus = 'safe';
+      if (percent >= 1) status = 'over';
+      else if (percent >= 0.8) status = 'warning';
+
+      return {
+        budget,
+        spent,
+        cap,
+        baseCap,
+        carryOverAmount,
+        percent,
+        status,
+        isConverted: true,
+        missingCurrencyCodes: Array.from(missing),
+      };
+    });
+  }, [budgets, convertTransactionAmountToReporting, transactions]);
+
+  const goalProgress = useMemo<GoalProgress[]>(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return goals.map((goal) => {
+      const ledger = goal.ledgerId
+        ? ledgers.find((item) => item.id === goal.ledgerId)
+        : null;
+      const target = Math.max(0, Number(goal.targetAmount) || 0);
+      const saved = ledger ? ledgerBalance(ledger.id) : 0;
+      const remaining = Math.max(0, target - saved);
+      const percent = target > 0 ? saved / target : 0;
+      const deadline = parseLocalDate(goal.deadline);
+      const daysRemaining = deadline ? daysBetween(today, deadline) : undefined;
+      const currencyCode = goal.currencyCode || ledger?.currencyCode || reportingCurrency.code;
+      const currencySymbol =
+        goal.currencySymbol || ledger?.currencySymbol || reportingCurrency.symbol;
+      const currencyMismatch =
+        Boolean(goal.currencyCode && ledger && goal.currencyCode !== ledger.currencyCode);
+
+      let pacing: GoalPacing = 'no-deadline';
+      let suggestedMonthly = 0;
+
+      if (goal.status === 'completed') {
+        pacing = 'complete';
+      } else if (goal.status === 'paused') {
+        pacing = 'paused';
+      } else if (target > 0 && saved >= target) {
+        pacing = 'complete';
+      } else if (!deadline) {
+        pacing = 'no-deadline';
+      } else {
+        if (daysRemaining !== undefined && daysRemaining <= 0) {
+          pacing = 'behind';
+          suggestedMonthly = remaining;
+        } else {
+          const created = parseBudgetDate(goal.createdAt);
+          created.setHours(0, 0, 0, 0);
+          const totalDays = Math.max(1, daysBetween(created, deadline));
+          const elapsedDays = Math.min(totalDays, Math.max(0, daysBetween(created, today)));
+          const expectedByNow = target * (elapsedDays / totalDays);
+          if (saved > expectedByNow * 1.05) {
+            pacing = 'ahead';
+          } else if (saved >= expectedByNow) {
+            pacing = 'on-track';
+          } else {
+            pacing = 'behind';
+          }
+          const monthsRemaining = Math.max(1, Math.ceil((daysRemaining ?? 0) / 30.44));
+          suggestedMonthly = remaining / monthsRemaining;
+        }
+      }
+
+      return {
+        goal,
+        saved,
+        remaining,
+        percent,
+        pacing,
+        suggestedMonthly,
+        daysRemaining,
+        currencyCode,
+        currencySymbol,
+        linkedLedgerName: ledger?.name,
+        linkedLedgerArchived: Boolean(ledger?.archived),
+        currencyMismatch,
+      };
+    });
+  }, [goals, ledgerBalance, ledgers, reportingCurrency]);
+
+  const billOccurrences = useMemo<BillOccurrence[]>(() => {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    const todayIso = formatISODate(now);
+    const rangeStart = new Date(now);
+    rangeStart.setDate(rangeStart.getDate() - 30);
+    const rangeEnd = addMonthsClamped(now, 3);
+    const recordMap = new Map(billOccurrenceRecords.map((record) => [record.id, record]));
+
+    return transactions
+      .filter((transaction) =>
+        transaction.type === 'expense' &&
+        transaction.recurring &&
+        !transaction.generatedFromRecurringId
+      )
+      .flatMap((source) => {
+        const schedule = normalizeRecurringSchedule(source);
+        if (!schedule) return [];
+        const ledger = ledgers.find((item) => item.id === (source.ledgerId ?? DEFAULT_LEDGER_ID));
+        return generateRecurringOccurrences(
+          source,
+          formatISODate(rangeStart),
+          formatISODate(rangeEnd),
+        ).map((occurrence) => {
+          const id = billOccurrenceId(source.id, occurrence.dueDate);
+          const record = recordMap.get(id);
+          const dueDate = parseLocalDate(occurrence.dueDate) ?? now;
+          const daysUntilDue = daysBetween(now, dueDate);
+          const status: BillDisplayStatus =
+            record?.status ??
+            (occurrence.dueDate < todayIso
+              ? 'missed'
+              : occurrence.dueDate === todayIso
+              ? 'due-today'
+              : 'upcoming');
+
+          return {
+            id,
+            source,
+            dueDate: occurrence.dueDate,
+            amount: occurrence.amount,
+            status,
+            manualStatus: record?.status,
+            daysUntilDue,
+            reminderDaysBefore: Math.max(0, Number(schedule.reminderDaysBefore ?? 0)),
+            ledgerName: ledger?.name,
+            ledgerArchived: Boolean(ledger?.archived),
+            currencyCode: normalizeCurrencyCode(ledger?.currencyCode ?? reportingCurrency.code),
+            currencySymbol: ledger?.currencySymbol ?? reportingCurrency.symbol,
+            notificationId: record?.notificationId,
+          };
+        });
+      })
+      .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  }, [billOccurrenceRecords, ledgers, reportingCurrency, transactions]);
+
+  const upsertBillRecord = useCallback(
+    (id: string, status: BillOccurrenceStatus) => {
+      const existing = billOccurrenceRecords.find((record) => record.id === id);
+      if (existing?.notificationId) {
+        cancelBillReminder(existing.notificationId).catch(console.error);
+      }
+      const parsed = parseBillOccurrenceId(id);
+      const nextRecord: BillOccurrenceRecord = {
+        ...existing,
+        id,
+        recurringTransactionId: existing?.recurringTransactionId ?? parsed.recurringTransactionId,
+        dueDate: existing?.dueDate ?? parsed.dueDate,
+        status,
+        markedAt: new Date().toISOString(),
+        notificationId: undefined,
+        notificationScheduledAt: undefined,
+      };
+      const rest = billOccurrenceRecords.filter((record) => record.id !== id);
+      persistBillOccurrenceRecords([nextRecord, ...rest]);
+    },
+    [billOccurrenceRecords, persistBillOccurrenceRecords],
+  );
+
+  const markBillPaid = useCallback(
+    (id: string) => upsertBillRecord(id, 'paid'),
+    [upsertBillRecord],
+  );
+
+  const markBillMissed = useCallback(
+    (id: string) => upsertBillRecord(id, 'missed'),
+    [upsertBillRecord],
+  );
+
+  const clearBillStatus = useCallback(
+    (id: string) => {
+      const existing = billOccurrenceRecords.find((record) => record.id === id);
+      if (existing?.notificationId) {
+        cancelBillReminder(existing.notificationId).catch(console.error);
+      }
+      persistBillOccurrenceRecords(billOccurrenceRecords.filter((record) => record.id !== id));
+    },
+    [billOccurrenceRecords, persistBillOccurrenceRecords],
+  );
+
+  const refreshBillNotificationPermission = useCallback(async () => {
+    const nextStatus = await getBillNotificationPermission();
+    setBillNotificationStatus(nextStatus);
+    return nextStatus;
+  }, []);
+
+  const syncBillNotifications = useCallback(async (): Promise<BillNotificationSyncResult> => {
+    const permission = await getBillNotificationPermission();
+    setBillNotificationStatus(permission);
+    if (permission !== 'granted') return { scheduled: 0, skipped: billOccurrences.length };
+
+    const recordMap = new Map(billOccurrenceRecords.map((record) => [record.id, record]));
+    const nextRecordMap = new Map(recordMap);
+    let scheduled = 0;
+    let skipped = 0;
+
+    for (const occurrence of billOccurrences) {
+      if (occurrence.status === 'paid' || occurrence.status === 'missed') {
+        skipped += 1;
+        continue;
+      }
+
+      const existing = recordMap.get(occurrence.id);
+      if (existing?.notificationId) {
+        await cancelBillReminder(existing.notificationId);
+      }
+
+      const notificationId = await scheduleBillReminder({
+        id: occurrence.id,
+        title: occurrence.source.description,
+        dueDate: occurrence.dueDate,
+        reminderDaysBefore: occurrence.reminderDaysBefore,
+      });
+
+      if (!notificationId) {
+        skipped += 1;
+        continue;
+      }
+
+      scheduled += 1;
+      nextRecordMap.set(occurrence.id, {
+        ...existing,
+        id: occurrence.id,
+        recurringTransactionId: occurrence.source.id,
+        dueDate: occurrence.dueDate,
+        notificationId,
+        notificationScheduledAt: new Date().toISOString(),
+      });
+    }
+
+    persistBillOccurrenceRecords(Array.from(nextRecordMap.values()));
+    return { scheduled, skipped };
+  }, [billOccurrenceRecords, billOccurrences, persistBillOccurrenceRecords]);
+
+  const requestBillNotificationPermission = useCallback(async () => {
+    const nextStatus = await requestDeviceBillNotificationPermission();
+    setBillNotificationStatus(nextStatus);
+    if (nextStatus === 'granted') {
+      await syncBillNotifications();
+    }
+    return nextStatus;
+  }, [syncBillNotifications]);
 
   const stats = useMemo<Stats>(() => {
     const start = new Date(dateFilter.startDate);
@@ -578,6 +1099,29 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
         addTransaction,
         updateTransaction,
         removeTransaction,
+        budgets,
+        budgetProgress,
+        addBudget,
+        updateBudget,
+        removeBudget,
+        goals,
+        goalProgress,
+        addGoal,
+        updateGoal,
+        removeGoal,
+        pauseGoal,
+        resumeGoal,
+        markGoalComplete,
+        ledgerBalance,
+        billOccurrences,
+        billOccurrenceRecords,
+        billNotificationStatus,
+        markBillPaid,
+        markBillMissed,
+        clearBillStatus,
+        refreshBillNotificationPermission,
+        requestBillNotificationPermission,
+        syncBillNotifications,
         addCustomCategory,
         setCurrency,
         setReportingCurrency,

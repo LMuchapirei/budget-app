@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
 import {
-  Wallet, TrendingUp, PieChart as PieIcon, Settings,
+  Wallet, Bell, TrendingUp, PieChart as PieIcon, Settings,
   ChevronLeft, ChevronRight, type LucideIcon,
 } from 'lucide-react-native';
 import { useTheme } from '../context/ThemeContext';
@@ -33,6 +33,7 @@ export function Header({ view, setView }: HeaderProps) {
 
   const tabs: { id: ViewTab; label: string; Icon: LucideIcon }[] = [
     { id: 'dashboard', label: 'Ledger', Icon: Wallet },
+    { id: 'bills', label: 'Bills', Icon: Bell },
     { id: 'projections', label: 'Projections', Icon: TrendingUp },
     { id: 'reports', label: 'Reports', Icon: PieIcon },
     { id: 'settings', label: 'Settings', Icon: Settings },

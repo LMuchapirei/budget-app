@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -42,7 +42,7 @@ interface CalendarProps {
   colors: any;
 }
 
-function Calendar({ selected, min, max, rangeStart, rangeEnd, onSelect, colors }: CalendarProps) {
+export function Calendar({ selected, min, max, rangeStart, rangeEnd, onSelect, colors }: CalendarProps) {
   const selDate = parseIso(selected);
   const [calYear, setCalYear] = useState(selDate.getFullYear());
   const [calMonth, setCalMonth] = useState(selDate.getMonth());
@@ -52,7 +52,22 @@ function Calendar({ selected, min, max, rangeStart, rangeEnd, onSelect, colors }
 
   const todayYear = new Date().getFullYear();
   const minYear = min ? parseIso(min).getFullYear() : todayYear - 10;
-  const maxYear = max ? parseIso(max).getFullYear() : todayYear;
+  const maxYear = max ? parseIso(max).getFullYear() : Math.max(todayYear + 10, minYear + 10);
+  const minMonthBoundary = min ? parseIso(min) : new Date(minYear, 0, 1);
+  const maxMonthBoundary = max ? parseIso(max) : new Date(maxYear, 11, 31);
+  const canGoPrevMonth =
+    calYear > minMonthBoundary.getFullYear() ||
+    (calYear === minMonthBoundary.getFullYear() && calMonth > minMonthBoundary.getMonth());
+  const canGoNextMonth =
+    calYear < maxMonthBoundary.getFullYear() ||
+    (calYear === maxMonthBoundary.getFullYear() && calMonth < maxMonthBoundary.getMonth());
+
+  useEffect(() => {
+    const nextSelected = parseIso(selected);
+    setCalYear(nextSelected.getFullYear());
+    setCalMonth(nextSelected.getMonth());
+    setMode('day');
+  }, [selected]);
 
   // ─── Day View ────────────────────────────────────────────────────────────────
   const firstDay = new Date(calYear, calMonth, 1).getDay();
@@ -64,10 +79,12 @@ function Calendar({ selected, min, max, rangeStart, rangeEnd, onSelect, colors }
   while (cells.length % 7 !== 0) cells.push(null);
 
   const prevMonth = () => {
+    if (!canGoPrevMonth) return;
     if (calMonth === 0) { setCalYear(y => y - 1); setCalMonth(11); }
     else setCalMonth(m => m - 1);
   };
   const nextMonth = () => {
+    if (!canGoNextMonth) return;
     if (calMonth === 11) { setCalYear(y => y + 1); setCalMonth(0); }
     else setCalMonth(m => m + 1);
   };
@@ -101,7 +118,12 @@ function Calendar({ selected, min, max, rangeStart, rangeEnd, onSelect, colors }
       {/* Header */}
       <View style={styles.calHeader}>
         {mode === 'day' && (
-          <Pressable onPress={prevMonth} style={styles.calArrow} hitSlop={8}>
+          <Pressable
+            onPress={prevMonth}
+            style={[styles.calArrow, !canGoPrevMonth && { opacity: 0.25 }]}
+            hitSlop={8}
+            disabled={!canGoPrevMonth}
+          >
             <ChevronLeft size={16} color={colors.inkSoft} />
           </Pressable>
         )}
@@ -126,7 +148,12 @@ function Calendar({ selected, min, max, rangeStart, rangeEnd, onSelect, colors }
         </Pressable>
 
         {mode === 'day' && (
-          <Pressable onPress={nextMonth} style={styles.calArrow} hitSlop={8}>
+          <Pressable
+            onPress={nextMonth}
+            style={[styles.calArrow, !canGoNextMonth && { opacity: 0.25 }]}
+            hitSlop={8}
+            disabled={!canGoNextMonth}
+          >
             <ChevronRight size={16} color={colors.inkSoft} />
           </Pressable>
         )}
@@ -160,10 +187,11 @@ function Calendar({ selected, min, max, rangeStart, rangeEnd, onSelect, colors }
         <View style={styles.gridWrap}>
           {MONTHS_SHORT.map((m, i) => {
             const active = i === calMonth;
-            // Disable future months in max year
-            const isDisabled = calYear === maxYear && max
-              ? i > parseIso(max).getMonth()
-              : calYear < minYear;
+            const isDisabled =
+              calYear < minMonthBoundary.getFullYear() ||
+              (calYear === minMonthBoundary.getFullYear() && i < minMonthBoundary.getMonth()) ||
+              calYear > maxMonthBoundary.getFullYear() ||
+              (calYear === maxMonthBoundary.getFullYear() && i > maxMonthBoundary.getMonth());
             return (
               <Pressable
                 key={m}
