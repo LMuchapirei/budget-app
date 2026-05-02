@@ -11,12 +11,13 @@ interface BarChartProps {
   width: number;
   height: number;
   data: BarDatum[];
+  formatTick?: (value: number) => string;
 }
 
 const PADDING = { top: 12, right: 12, bottom: 24, left: 36 };
 const BAR_RADIUS = 4;
 
-export function BarChart({ width, height, data }: BarChartProps) {
+export function BarChart({ width, height, data, formatTick }: BarChartProps) {
   const { colors } = useTheme();
   const innerW = width - PADDING.left - PADDING.right;
   const innerH = height - PADDING.top - PADDING.bottom;
@@ -29,8 +30,9 @@ export function BarChart({ width, height, data }: BarChartProps) {
   const y = (v: number) => PADDING.top + innerH - (v / max) * innerH;
 
   const gridLines = 4;
-  const tickFormatter = (v: number) =>
-    v >= 1000 ? `$${Math.round(v / 1000)}k` : `$${Math.round(v)}`;
+  const tickFormatter =
+    formatTick ?? ((v: number) =>
+      v >= 1000 ? `$${Math.round(v / 1000)}k` : `$${Math.round(v)}`);
 
   return (
     <Svg width={width} height={height}>

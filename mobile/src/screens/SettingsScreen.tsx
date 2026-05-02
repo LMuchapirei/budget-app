@@ -5,10 +5,11 @@ import { useBudget } from '../context/BudgetContext';
 import { useLock } from '../context/LockContext';
 import { fonts } from '../theme';
 import { Moon, Trash2, DollarSign, Lock } from 'lucide-react-native';
+import { REPORTING_CURRENCY_OPTIONS } from '../utils/currency';
 
 export function SettingsScreen() {
   const { theme, toggleTheme, colors } = useTheme();
-  const { clearAllData, currency, setCurrency } = useBudget();
+  const { clearAllData, reportingCurrency, setReportingCurrency } = useBudget();
   const { isAppLockEnabled, setAppLockEnabled } = useLock();
 
   const styles = React.useMemo(() => createStyles(colors), [colors]);
@@ -49,25 +50,25 @@ export function SettingsScreen() {
         <View style={styles.row}>
           <View style={styles.rowLeft}>
             <DollarSign size={20} color={colors.stone500} />
-            <Text style={styles.rowLabel}>Currency Symbol</Text>
+            <Text style={styles.rowLabel}>Reporting Currency</Text>
           </View>
           <View style={styles.currencyToggle}>
-            {['$', '€', '£', '¥'].map((sym) => (
+            {REPORTING_CURRENCY_OPTIONS.map((option) => (
               <Pressable
-                key={sym}
-                onPress={() => setCurrency(sym)}
+                key={option.code}
+                onPress={() => setReportingCurrency(option)}
                 style={[
                   styles.currencyBtn,
-                  currency === sym && { backgroundColor: colors.rust },
+                  reportingCurrency.code === option.code && { backgroundColor: colors.rust },
                 ]}
               >
                 <Text
                   style={[
                     styles.currencyBtnText,
-                    currency === sym && { color: colors.paper },
+                    reportingCurrency.code === option.code && { color: colors.paper },
                   ]}
                 >
-                  {sym}
+                  {option.code}
                 </Text>
               </Pressable>
             ))}
@@ -131,10 +132,13 @@ const createStyles = (colors: any) =>
     },
     currencyToggle: {
       flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'flex-end',
       gap: 4,
       backgroundColor: colors.chip,
       padding: 4,
       borderRadius: 8,
+      maxWidth: 230,
     },
     currencyBtn: {
       paddingHorizontal: 12,

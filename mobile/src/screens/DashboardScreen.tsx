@@ -18,22 +18,13 @@ import { AreaChart } from '../charts/AreaChart';
 import { StatCard } from '../components/ui/StatCard';
 import { Section, Empty, Legend } from '../components/ui/Layout';
 import { TxRow } from '../components/ui/TxRow';
-import type { Transaction, TxType } from '../types';
+import type { Transaction, TxType, FxRateStatus } from '../types';
 import { fonts } from '../theme';
+import { REPORTING_CURRENCY_OPTIONS } from '../utils/currency';
 
 type EntryTab = 'all' | TxType;
 
-const CURRENCY_OPTIONS = [
-  { code: 'USD', symbol: '$' },
-  { code: 'USD', symbol: 'US$' },
-  { code: 'ZWL', symbol: 'Z$' },
-  { code: 'ZAR', symbol: 'R' },
-  { code: 'EUR', symbol: '€' },
-  { code: 'GBP', symbol: '£' },
-  { code: 'JPY', symbol: '¥' },
-] as const;
-
-type CurrencyOption = typeof CURRENCY_OPTIONS[number];
+type CurrencyOption = typeof REPORTING_CURRENCY_OPTIONS[number];
 
 interface DashboardScreenProps {
   onEditTransaction: (t: Transaction) => void;
@@ -54,6 +45,31 @@ function isoDate(d: Date) {
   ].join('-');
 }
 
+function formatRateDate(value?: string) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function getAllAccountsMeta(
+  currencyCode: string,
+  fxStatus: FxRateStatus,
+  rateAsOf?: string,
+  missingCurrencyCodes: string[] = [],
+  fxError?: string | null,
+) {
+  if (fxStatus === 'loading') return `Updating ${currencyCode} rates - partial estimate`;
+  if (missingCurrencyCodes.length > 0) {
+    return `Partial estimate in ${currencyCode} - missing ${missingCurrencyCodes.join(', ')}`;
+  }
+  if (fxStatus === 'error') {
+    return `Estimated in ${currencyCode} - rates unavailable${fxError ? ` (${fxError})` : ''}`;
+  }
+  const date = formatRateDate(rateAsOf);
+  return `Estimated in ${currencyCode}${date ? ` - rates ${date}` : ''}`;
+}
+
 export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
   const { colors } = useTheme();
   const {
@@ -66,8 +82,14 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
     stats,
     customCategories,
     dateFilter,
-    currency,
-    formatMoney,
+    reportingCurrency,
+    fxRates,
+    fxStatus,
+    fxError,
+    formatActiveMoney,
+    formatCompactMoney,
+    convertTransactionAmountToReporting,
+    getTransactionAmountForActiveView,
     maskAccountNumber,
   } = useBudget();
   const { width } = useWindowDimensions();
@@ -97,7 +119,8 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
 
     monthlyTxs.forEach((t) => {
       if (!totalsByDate[t.date]) totalsByDate[t.date] = { income: 0, expenses: 0 };
-      totalsByDate[t.date][t.type === 'income' ? 'income' : 'expenses'] += Number(t.amount);
+      totalsByDate[t.date][t.type === 'income' ? 'income' : 'expenses'] +=
+        getTransactionAmountForActiveView(t);
     });
 
     const totalDays = Math.round((endMs - startMs) / MS_PER_DAY) + 1;
@@ -123,7 +146,7 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
       });
     }
     return days;
-  }, [monthlyTxs, dateFilter]);
+  }, [monthlyTxs, dateFilter, getTransactionAmountForActiveView]);
 
   // Filtered recent entries based on tab
   const filteredEntries = useMemo(() => {
@@ -133,23 +156,48 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
   }, [monthlyTxs, entryTab]);
 
   const ledgerStats = useMemo(() => {
-    const income = scopedTransactions
-      .filter((t) => t.type === 'income')
-      .reduce((sum, t) => sum + Number(t.amount), 0);
-    const expenses = scopedTransactions
-      .filter((t) => t.type === 'expense')
-      .reduce((sum, t) => sum + Number(t.amount), 0);
-    return { income, expenses, balance: income - expenses };
-  }, [scopedTransactions]);
+    const missing = new Set<string>();
+    const totals = scopedTransactions.reduce(
+      (next, transaction) => {
+        const conversion =
+          activeLedgerId === ALL_LEDGER_ID
+            ? convertTransactionAmountToReporting(transaction)
+            : { amount: Number(transaction.amount), converted: true };
+
+        if (!conversion.converted && conversion.missingCurrencyCode) {
+          missing.add(conversion.missingCurrencyCode);
+        }
+
+        if (transaction.type === 'income') {
+          next.income += conversion.amount;
+        } else {
+          next.expenses += conversion.amount;
+        }
+        return next;
+      },
+      { income: 0, expenses: 0 },
+    );
+
+    return {
+      income: totals.income,
+      expenses: totals.expenses,
+      balance: totals.income - totals.expenses,
+      missingCurrencyCodes: Array.from(missing),
+    };
+  }, [activeLedgerId, convertTransactionAmountToReporting, scopedTransactions]);
 
   const chartW = width - 24 * 2 - 16 * 2;
-  const ledgerSymbol = activeLedger?.currencySymbol ?? currency;
-  const formatLedgerMoney = (n: number) =>
-    `${ledgerSymbol}${Math.abs(n).toLocaleString('en-US', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })}`;
+  const formatLedgerMoney = formatActiveMoney;
   const maskedAccountNumber = activeLedger ? maskAccountNumber(activeLedger.accountNumber) : '';
+  const allAccountsMeta = activeLedger
+    ? ''
+    : getAllAccountsMeta(
+        reportingCurrency.code,
+        fxStatus,
+        fxRates?.asOf,
+        ledgerStats.missingCurrencyCodes,
+        fxError,
+      );
 
   const entryTabs: { id: EntryTab; label: string }[] = [
     { id: 'all', label: 'All' },
@@ -168,10 +216,12 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
             <Text style={styles.ledgerTitle}>
               {activeLedger?.name ?? 'All Accounts'}
             </Text>
-            {activeLedger && (
+            {activeLedger ? (
               <Text style={styles.ledgerAccountMeta}>
                 {activeLedger.currencyCode} {maskedAccountNumber ? `- ${maskedAccountNumber}` : ''}
               </Text>
+            ) : (
+              <Text style={styles.ledgerAccountMeta}>{allAccountsMeta}</Text>
             )}
           </View>
           <View style={styles.ledgerIcon}>
@@ -241,7 +291,7 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
         <StatCard
           label="Income this month"
           rawValue={stats.income}
-          value={stats.income.toFixed(2)}
+          value={formatActiveMoney(stats.income)}
           color={colors.moss}
           Icon={TrendingUp}
           accent="i."
@@ -249,7 +299,7 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
         <StatCard
           label="Expenses this month"
           rawValue={stats.expenses}
-          value={stats.expenses.toFixed(2)}
+          value={formatActiveMoney(stats.expenses)}
           color={colors.clay}
           Icon={TrendingDown}
           accent="ii."
@@ -257,7 +307,7 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
         <StatCard
           label="Net balance"
           rawValue={stats.balance}
-          value={Math.abs(stats.balance).toFixed(2)}
+          value={formatActiveMoney(Math.abs(stats.balance))}
           color={stats.balance >= 0 ? colors.ink : colors.clay}
           Icon={Wallet}
           accent="iii."
@@ -274,6 +324,7 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
               width={chartW}
               height={220}
               labels={chartDays.map((d) => d.label)}
+              formatTick={formatCompactMoney}
               series={[
                 {
                   color: colors.moss,
@@ -416,7 +467,8 @@ function AddLedgerSheet({
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
-  const [selectedCurrency, setSelectedCurrency] = useState<CurrencyOption>(CURRENCY_OPTIONS[0]);
+  const [selectedCurrency, setSelectedCurrency] =
+    useState<CurrencyOption>(REPORTING_CURRENCY_OPTIONS[0]);
 
   const handleSave = () => {
     if (!name.trim()) return;
@@ -430,7 +482,7 @@ function AddLedgerSheet({
     setName('');
     setDescription('');
     setAccountNumber('');
-    setSelectedCurrency(CURRENCY_OPTIONS[0]);
+    setSelectedCurrency(REPORTING_CURRENCY_OPTIONS[0]);
   };
 
   return (
@@ -473,7 +525,7 @@ function AddLedgerSheet({
             <View style={{ gap: 8 }}>
               <Text style={styles.fieldLabel}>Currency</Text>
               <View style={styles.currencyGrid}>
-                {CURRENCY_OPTIONS.map((option) => {
+                {REPORTING_CURRENCY_OPTIONS.map((option) => {
                   const active =
                     selectedCurrency.code === option.code &&
                     selectedCurrency.symbol === option.symbol;

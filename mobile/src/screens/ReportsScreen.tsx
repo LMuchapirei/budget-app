@@ -11,7 +11,14 @@ import { fonts } from '../theme';
 
 export function ReportsScreen() {
   const { colors } = useTheme();
-  const { transactions, customCategories, formatMoney } = useBudget();
+  const {
+    transactions,
+    customCategories,
+    reportingCurrency,
+    formatReportingMoney,
+    formatCompactMoney,
+    convertTransactionAmountToReporting,
+  } = useBudget();
   const { width } = useWindowDimensions();
 
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -21,12 +28,13 @@ export function ReportsScreen() {
   const byCategory = useMemo(() => {
     const map: Record<string, number> = {};
     expenses.forEach((t) => {
-      map[t.category] = (map[t.category] || 0) + Number(t.amount);
+      map[t.category] = (map[t.category] || 0) + convertTransactionAmountToReporting(t).amount;
     });
     return Object.entries(map)
+      .filter(([, value]) => value > 0)
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value);
-  }, [expenses]);
+  }, [convertTransactionAmountToReporting, expenses]);
 
   const byMonth = useMemo(() => {
     const map: Record<string, { month: string; income: number; expenses: number }> = {};
@@ -34,7 +42,8 @@ export function ReportsScreen() {
       const d = new Date(t.date);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       if (!map[key]) map[key] = { month: key, income: 0, expenses: 0 };
-      map[key][t.type === 'income' ? 'income' : 'expenses'] += Number(t.amount);
+      map[key][t.type === 'income' ? 'income' : 'expenses'] +=
+        convertTransactionAmountToReporting(t).amount;
     });
     return Object.values(map)
       .sort((a, b) => a.month.localeCompare(b.month))
@@ -45,7 +54,7 @@ export function ReportsScreen() {
           month: 'short',
         }),
       }));
-  }, [transactions]);
+  }, [convertTransactionAmountToReporting, transactions]);
 
   const totalExpenses = byCategory.reduce((s, c) => s + c.value, 0);
   const chartW = width - 24 * 2 - 16 * 2;
@@ -56,7 +65,10 @@ export function ReportsScreen() {
 
   return (
     <View style={{ gap: 32 }}>
-      <Section title="Spending by Category" subtitle={`${formatMoney(totalExpenses)} total`}>
+      <Section
+        title="Spending by Category"
+        subtitle={`${formatReportingMoney(totalExpenses)} total in ${reportingCurrency.code}`}
+      >
         {byCategory.length === 0 ? (
           <Empty msg="No expenses recorded yet." />
         ) : (
@@ -86,7 +98,7 @@ export function ReportsScreen() {
                         <Text style={styles.legendName}>{c.name}</Text>
                       </View>
                       <Text style={styles.legendValue}>
-                        {formatMoney(c.value)}{' '}
+                        {formatReportingMoney(c.value)}{' '}
                         <Text style={styles.legendPct}>· {pct.toFixed(1)}%</Text>
                       </Text>
                     </View>
@@ -111,7 +123,7 @@ export function ReportsScreen() {
 
       <Section title="Monthly Comparison" subtitle="Last 6 months">
         <View style={styles.card}>
-          <BarChart width={chartW} height={240} data={byMonth} />
+          <BarChart width={chartW} height={240} data={byMonth} formatTick={formatCompactMoney} />
           <View style={styles.legendWrapper}>
             <Legend color={colors.moss} label="Income" />
             <Legend color={colors.clay} label="Expenses" />

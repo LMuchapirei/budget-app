@@ -16,7 +16,8 @@ Last updated: 2026-04-27
 - App lock through Expo Local Authentication.
 - Ledger tab with dashboard cards, cash flow chart, recent entries, and date filter.
 - Reports tab with spending by category and monthly comparison.
-- Projections tab based on recurring transactions.
+- Projections tab based on recurring schedules.
+- Recurring schedule engine for daily, weekly, monthly, and yearly schedules.
 - Settings tab with theme, app lock, currency symbol, and clear data.
 
 ## Transaction Features
@@ -27,7 +28,7 @@ Last updated: 2026-04-27
   - description
   - category
   - date
-  - recurring flag
+  - recurring flag and recurring schedule
   - linked ledger/account via `ledgerId`
 - Transactions can be added and edited.
 - Editing writes a `TransactionEditHistory` record with:
@@ -87,6 +88,7 @@ Last updated: 2026-04-27
 - `src/components/forms/TransactionForm.tsx`: add/edit transaction sheet.
 - `src/components/ui/TxRow.tsx`: transaction row gestures, detail sheet, audit trail.
 - `src/charts/AreaChart.tsx`: cash flow chart rendering.
+- `src/utils/recurring.ts`: recurring schedule engine, occurrence generation, due dates, monthly impact estimates.
 
 ## Known Follow-Ups
 
@@ -110,8 +112,11 @@ Last updated: 2026-04-27
   - All Accounts uses the global/default currency and does not convert mixed currencies.
 - Recurring transactions:
   - Transactions can be marked as recurring.
-  - Projections read recurring transactions.
-  - There is no recurring schedule engine, auto-created future transactions, custom frequency, due date, or reminder flow.
+  - Recurring schedules support daily, weekly, monthly, and yearly frequencies.
+  - Schedules support interval, first due date, optional end date, and reminder lead days.
+  - The engine materializes due recurring entries locally when the app loads or a recurring transaction is saved.
+  - Projections read generated future occurrences for the next 12 months.
+  - Reminder lead days are stored and displayed, but local notifications are not wired yet.
 - Transaction audit trail:
   - Edits are recorded with before/after data and projection impact.
   - Audit trail is shown in transaction details and projections.
@@ -122,7 +127,7 @@ Last updated: 2026-04-27
   - Shows account, currency, masked number, amount, metadata, and audit history.
   - No notes, attachments, merchant, payment method, or tags yet.
 - Transaction form:
-  - Supports add/edit, account selection, category selection, date text entry, and recurring toggle.
+  - Supports add/edit, account selection, category selection, date text entry, and recurring schedule setup.
   - Date is still plain text rather than a picker.
   - Amount parsing is basic and does not handle commas, symbols, or locale-specific formats.
 - Categories:
@@ -171,10 +176,11 @@ Last updated: 2026-04-27
   - Local notifications.
   - Missed/paid status.
 - Recurring engine:
-  - Frequencies: daily, weekly, monthly, yearly.
-  - Start/end dates.
-  - Auto-generation or confirmation of recurring entries.
-  - Upcoming recurring transactions list.
+  - Confirmation flow before posting generated entries.
+  - Skip/postpone one occurrence.
+  - Pause/resume a recurring schedule.
+  - Mark recurring bill occurrence as paid/missed.
+  - Local notification integration for stored reminder lead days.
 - Search and filters:
   - Search by description, amount, category, account, and date.
   - Filter by account, category, type, recurring status, and amount range.

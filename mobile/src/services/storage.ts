@@ -1,5 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { Transaction, CustomCategory, TransactionEditHistory, LedgerAccount } from '../types';
+import type {
+  Transaction,
+  CustomCategory,
+  TransactionEditHistory,
+  LedgerAccount,
+  ReportingCurrency,
+  ExchangeRatesCache,
+} from '../types';
 
 export interface DataService {
   getTheme(): Promise<string | null>;
@@ -7,6 +14,12 @@ export interface DataService {
   
   getCurrency(): Promise<string | null>;
   setCurrency(curr: string): Promise<void>;
+
+  getReportingCurrency(): Promise<ReportingCurrency | null>;
+  setReportingCurrency(currency: ReportingCurrency): Promise<void>;
+
+  getExchangeRatesCache(): Promise<ExchangeRatesCache | null>;
+  saveExchangeRatesCache(cache: ExchangeRatesCache): Promise<void>;
   
   getTransactions(): Promise<Transaction[]>;
   saveTransactions(txs: Transaction[]): Promise<void>;
@@ -37,6 +50,8 @@ class LocalDataService implements DataService {
   private readonly EDIT_HISTORY_KEY = 'budget:transaction-edits:v1';
   private readonly CAT_STORAGE_KEY = 'budget:categories:v1';
   private readonly CURRENCY_KEY = 'budget:currency:v1';
+  private readonly REPORTING_CURRENCY_KEY = 'budget:reporting-currency:v1';
+  private readonly EXCHANGE_RATES_KEY = 'budget:exchange-rates:v1';
   private readonly APPLOCK_KEY = 'budget:applock:v1';
 
   async getTheme(): Promise<string | null> {
@@ -53,6 +68,34 @@ class LocalDataService implements DataService {
 
   async setCurrency(curr: string): Promise<void> {
     await AsyncStorage.setItem(this.CURRENCY_KEY, curr);
+  }
+
+  async getReportingCurrency(): Promise<ReportingCurrency | null> {
+    const raw = await AsyncStorage.getItem(this.REPORTING_CURRENCY_KEY);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as ReportingCurrency;
+    } catch {
+      return null;
+    }
+  }
+
+  async setReportingCurrency(currency: ReportingCurrency): Promise<void> {
+    await AsyncStorage.setItem(this.REPORTING_CURRENCY_KEY, JSON.stringify(currency));
+  }
+
+  async getExchangeRatesCache(): Promise<ExchangeRatesCache | null> {
+    const raw = await AsyncStorage.getItem(this.EXCHANGE_RATES_KEY);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as ExchangeRatesCache;
+    } catch {
+      return null;
+    }
+  }
+
+  async saveExchangeRatesCache(cache: ExchangeRatesCache): Promise<void> {
+    await AsyncStorage.setItem(this.EXCHANGE_RATES_KEY, JSON.stringify(cache));
   }
 
   async getTransactions(): Promise<Transaction[]> {
@@ -135,6 +178,9 @@ class LocalDataService implements DataService {
       this.EDIT_HISTORY_KEY,
       this.LEDGER_KEY,
       this.ACTIVE_LEDGER_KEY,
+      this.CURRENCY_KEY,
+      this.REPORTING_CURRENCY_KEY,
+      this.EXCHANGE_RATES_KEY,
     ]);
   }
 }

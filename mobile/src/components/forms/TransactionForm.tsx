@@ -15,7 +15,7 @@ import {
 import { CreditCard, X, Repeat } from 'lucide-react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { ALL_LEDGER_ID, useBudget } from '../../context/BudgetContext';
-import type { TxType, Category, Transaction } from '../../types';
+import type { TxType, Category, Transaction, RecurringFrequency } from '../../types';
 import { fonts, CATEGORIES, colorFor } from '../../theme';
 import { Field, AddCategorySheet } from './AddCategorySheet';
 
@@ -48,6 +48,19 @@ export function TransactionForm({ onClose, transaction }: TransactionFormProps) 
   const [ledgerId, setLedgerId] = useState(preferredLedgerId);
   const [date, setDate] = useState(transaction?.date ?? new Date().toISOString().split('T')[0]);
   const [recurring, setRecurring] = useState(transaction?.recurring ?? false);
+  const [recurringFrequency, setRecurringFrequency] = useState<RecurringFrequency>(
+    transaction?.recurringSchedule?.frequency ?? 'monthly',
+  );
+  const [recurringInterval, setRecurringInterval] = useState(
+    String(transaction?.recurringSchedule?.interval ?? 1),
+  );
+  const [recurringStartDate, setRecurringStartDate] = useState(
+    transaction?.recurringSchedule?.startDate ?? transaction?.date ?? new Date().toISOString().split('T')[0],
+  );
+  const [recurringEndDate, setRecurringEndDate] = useState(transaction?.recurringSchedule?.endDate ?? '');
+  const [reminderDaysBefore, setReminderDaysBefore] = useState(
+    String(transaction?.recurringSchedule?.reminderDaysBefore ?? 1),
+  );
   const [showAddCategory, setShowAddCategory] = useState(false);
   const skipInitialCategoryReset = useRef(Boolean(transaction));
   const selectedLedger = ledgers.find((ledger) => ledger.id === ledgerId) ?? ledgers[0];
@@ -71,6 +84,17 @@ export function TransactionForm({ onClose, transaction }: TransactionFormProps) 
     const n = Number(amount);
     const targetLedgerId = ledgerId ?? ledgers[0]?.id;
     if (!amount || !description.trim() || !targetLedgerId || Number.isNaN(n) || n <= 0) return;
+    const interval = Math.max(1, Number(recurringInterval) || 1);
+    const reminder = Math.max(0, Number(reminderDaysBefore) || 0);
+    const recurringSchedule = recurring
+      ? {
+          frequency: recurringFrequency,
+          interval,
+          startDate: recurringStartDate.trim() || date,
+          endDate: recurringEndDate.trim() || undefined,
+          reminderDaysBefore: reminder,
+        }
+      : undefined;
     if (transaction) {
       updateTransaction({
         ...transaction,
@@ -81,6 +105,7 @@ export function TransactionForm({ onClose, transaction }: TransactionFormProps) 
         ledgerId: targetLedgerId,
         date,
         recurring,
+        recurringSchedule,
       });
     } else {
       addTransaction({
@@ -91,6 +116,7 @@ export function TransactionForm({ onClose, transaction }: TransactionFormProps) 
         ledgerId: targetLedgerId,
         date,
         recurring,
+        recurringSchedule,
       });
     }
     onClose();
@@ -267,7 +293,7 @@ export function TransactionForm({ onClose, transaction }: TransactionFormProps) 
           <View style={styles.recurringRow}>
             <View style={styles.recurringLabelGroup}>
               <Repeat size={14} color={colors.stone500} />
-              <Text style={styles.recurringRowLabel}>This repeats every month</Text>
+              <Text style={styles.recurringRowLabel}>Recurring schedule</Text>
             </View>
             <Switch
               value={recurring}
@@ -276,6 +302,87 @@ export function TransactionForm({ onClose, transaction }: TransactionFormProps) 
               thumbColor={colors.cream}
             />
           </View>
+
+          {recurring ? (
+            <View style={styles.schedulePanel}>
+              <Field label="Frequency">
+                <View style={styles.chipWrap}>
+                  {(['daily', 'weekly', 'monthly', 'yearly'] as RecurringFrequency[]).map((frequency) => {
+                    const active = recurringFrequency === frequency;
+                    return (
+                      <Pressable
+                        key={frequency}
+                        onPress={() => setRecurringFrequency(frequency)}
+                        style={[styles.chip, active && { backgroundColor: colors.ink }]}
+                      >
+                        <Text
+                          style={[
+                            styles.chipLabel,
+                            { color: active ? colors.paper : colors.inkSoft },
+                          ]}
+                        >
+                          {frequency.charAt(0).toUpperCase() + frequency.slice(1)}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </Field>
+
+              <View style={styles.scheduleGrid}>
+                <View style={styles.scheduleGridItem}>
+                  <Field label="Every">
+                    <TextInput
+                      value={recurringInterval}
+                      onChangeText={setRecurringInterval}
+                      keyboardType="number-pad"
+                      returnKeyType="done"
+                      onSubmitEditing={Keyboard.dismiss}
+                      style={styles.input}
+                    />
+                  </Field>
+                </View>
+                <View style={styles.scheduleGridItem}>
+                  <Field label="Reminder days">
+                    <TextInput
+                      value={reminderDaysBefore}
+                      onChangeText={setReminderDaysBefore}
+                      keyboardType="number-pad"
+                      returnKeyType="done"
+                      onSubmitEditing={Keyboard.dismiss}
+                      style={styles.input}
+                    />
+                  </Field>
+                </View>
+              </View>
+
+              <Field label="First due date">
+                <TextInput
+                  value={recurringStartDate}
+                  onChangeText={setRecurringStartDate}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor={colors.stone400}
+                  autoCapitalize="none"
+                  returnKeyType="done"
+                  onSubmitEditing={Keyboard.dismiss}
+                  style={styles.input}
+                />
+              </Field>
+
+              <Field label="Ends on (optional)">
+                <TextInput
+                  value={recurringEndDate}
+                  onChangeText={setRecurringEndDate}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor={colors.stone400}
+                  autoCapitalize="none"
+                  returnKeyType="done"
+                  onSubmitEditing={Keyboard.dismiss}
+                  style={styles.input}
+                />
+              </Field>
+            </View>
+          ) : null}
         </ScrollView>
 
         <Pressable
@@ -414,6 +521,22 @@ const createStyles = (colors: any) =>
       fontFamily: fonts.body,
       fontSize: 13,
       color: colors.stone600,
+    },
+    schedulePanel: {
+      gap: 14,
+      padding: 14,
+      borderRadius: 16,
+      backgroundColor: colors.paper,
+      borderWidth: 1,
+      borderColor: colors.borderSoft,
+    },
+    scheduleGrid: {
+      flexDirection: 'row',
+      gap: 14,
+    },
+    scheduleGridItem: {
+      flex: 1,
+      minWidth: 0,
     },
     submit: {
       backgroundColor: colors.ink,

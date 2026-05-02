@@ -14,6 +14,11 @@ import { useTheme } from '../../context/ThemeContext';
 import type { Transaction, CustomCategory, TransactionEditHistory } from '../../types';
 import { colorFor, fonts } from '../../theme';
 import { useBudget } from '../../context/BudgetContext';
+import {
+  formatDisplayDate,
+  getNextOccurrenceDate,
+  getRecurringDescription,
+} from '../../utils/recurring';
 
 interface TxRowProps {
   t: Transaction;
@@ -217,6 +222,12 @@ function formatAuditChange(edit: TransactionEditHistory, formatMoney: (n: number
   if (edit.before.recurring !== edit.after.recurring) {
     changes.push(edit.after.recurring ? 'marked recurring' : 'removed recurring');
   }
+  if (
+    JSON.stringify(edit.before.recurringSchedule ?? null) !==
+    JSON.stringify(edit.after.recurringSchedule ?? null)
+  ) {
+    changes.push('updated schedule');
+  }
   if (edit.before.date !== edit.after.date) {
     changes.push(`${formatShortDate(edit.before.date)} to ${formatShortDate(edit.after.date)}`);
   }
@@ -254,6 +265,8 @@ function TransactionDetailsModal({
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const isIncome = transaction.type === 'income';
+  const recurringLabel = transaction.recurring ? getRecurringDescription(transaction) : 'No';
+  const nextDueDate = transaction.recurring ? getNextOccurrenceDate(transaction) : null;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -290,7 +303,8 @@ function TransactionDetailsModal({
 
             <View style={styles.detailGrid}>
               <DetailItem label="Type" value={transaction.type} />
-              <DetailItem label="Recurring" value={transaction.recurring ? 'Monthly' : 'No'} />
+              <DetailItem label="Recurring" value={recurringLabel} />
+              {nextDueDate ? <DetailItem label="Next due" value={formatDisplayDate(nextDueDate)} /> : null}
               <DetailItem label="Account" value={ledgerName} />
               <DetailItem label="Currency" value={ledgerCurrency} />
               {maskedAccountNumber ? (

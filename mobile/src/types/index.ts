@@ -2,6 +2,32 @@ export type Category = string;
 
 export type TxType = 'income' | 'expense';
 
+export type RecurringFrequency = 'daily' | 'weekly' | 'monthly' | 'yearly';
+
+export interface ReportingCurrency {
+  code: string;
+  symbol: string;
+}
+
+export interface ExchangeRatesCache {
+  provider: string;
+  baseCurrency: string;
+  rates: Record<string, number>;
+  asOf: string;
+  nextUpdateAt?: string;
+  fetchedAt: string;
+}
+
+export type FxRateStatus = 'idle' | 'loading' | 'ready' | 'stale' | 'error';
+
+export interface RecurringSchedule {
+  frequency: RecurringFrequency;
+  interval: number;
+  startDate: string;
+  endDate?: string;
+  reminderDaysBefore?: number;
+}
+
 export interface CustomCategory {
   id: string;
   title: string;
@@ -29,6 +55,9 @@ export interface Transaction {
   category: Category;
   date: string;
   recurring: boolean;
+  recurringSchedule?: RecurringSchedule;
+  generatedFromRecurringId?: string;
+  generatedOccurrenceDate?: string;
   ledgerId?: string;
 }
 
@@ -49,4 +78,9 @@ export interface Stats {
   expenses: number;
   balance: number;
   count: number;
+  isConverted?: boolean;
+  currencyCode?: string;
+  currencySymbol?: string;
+  missingCurrencyCodes?: string[];
+  rateAsOf?: string;
 }

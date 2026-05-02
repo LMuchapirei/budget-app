@@ -20,11 +20,12 @@ interface AreaChartProps {
   height: number;
   series: Series[];
   labels?: string[];
+  formatTick?: (value: number) => string;
 }
 
 const PADDING = { top: 12, right: 16, bottom: 22, left: 40 };
 
-export function AreaChart({ width, height, series, labels }: AreaChartProps) {
+export function AreaChart({ width, height, series, labels, formatTick }: AreaChartProps) {
   const { colors } = useTheme();
   const innerW = width - PADDING.left - PADDING.right;
   const innerH = height - PADDING.top - PADDING.bottom;
@@ -47,8 +48,9 @@ export function AreaChart({ width, height, series, labels }: AreaChartProps) {
   };
 
   const gridLines = 4;
-  const tickFormatter = (v: number) =>
-    v >= 1000 ? `$${Math.round(v / 1000)}k` : `$${Math.round(v)}`;
+  const tickFormatter =
+    formatTick ?? ((v: number) =>
+      v >= 1000 ? `$${Math.round(v / 1000)}k` : `$${Math.round(v)}`);
   const labelIndexes = new Set<number>();
 
   if (labels && n > 0) {

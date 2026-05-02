@@ -6,8 +6,27 @@ import type {
   Category,
   TransactionEditHistory,
   LedgerAccount,
+  ReportingCurrency,
+  ExchangeRatesCache,
+  FxRateStatus,
 } from '../types';
 import { storage } from '../services/storage';
+import {
+  canConvertCurrency,
+  convertExchangeAmount,
+  fetchLatestExchangeRates,
+  isExchangeRateCacheFresh,
+  type ConversionResult,
+} from '../services/exchangeRates';
+import {
+  DEFAULT_REPORTING_CURRENCY,
+  currencyOptionFromCode,
+  currencyOptionFromSymbol,
+  formatCompactCurrencyAmount,
+  formatCurrencyAmount,
+  normalizeCurrencyCode,
+} from '../utils/currency';
+import { estimateMonthlyImpact, materializeRecurringTransactions } from '../utils/recurring';
 
 export interface DateFilter {
   startDate: string; // YYYY-MM-DD
@@ -25,6 +44,10 @@ interface BudgetContextValue {
   stats: Stats;
   loading: boolean;
   currency: string;
+  reportingCurrency: ReportingCurrency;
+  fxRates: ExchangeRatesCache | null;
+  fxStatus: FxRateStatus;
+  fxError: string | null;
   dateFilter: DateFilter;
   setDateFilter: (f: DateFilter) => void;
   setActiveLedger: (id: string) => void;
@@ -34,9 +57,16 @@ interface BudgetContextValue {
   removeTransaction: (id: string) => void;
   addCustomCategory: (c: CustomCategory) => void;
   setCurrency: (c: string) => void;
+  setReportingCurrency: (currency: ReportingCurrency) => Promise<void>;
   clearAllData: () => Promise<void>;
   formatMoney: (n: number) => string;
+  formatReportingMoney: (n: number) => string;
+  formatCompactMoney: (n: number) => string;
+  formatActiveMoney: (n: number) => string;
   formatMoneyForLedger: (n: number, ledgerId?: string | null) => string;
+  convertAmountToReporting: (amount: number, fromCurrency: string) => ConversionResult;
+  convertTransactionAmountToReporting: (transaction: Transaction) => ConversionResult;
+  getTransactionAmountForActiveView: (transaction: Transaction) => number;
   maskAccountNumber: (accountNumber?: string) => string;
 }
 
@@ -49,16 +79,17 @@ const DEFAULT_LEDGER: LedgerAccount = {
   name: 'Cash Ledger',
   description: 'Default account for existing entries',
   color: '#8B5A3C',
-  currencyCode: 'USD',
-  currencySymbol: '$',
+  currencyCode: DEFAULT_REPORTING_CURRENCY.code,
+  currencySymbol: DEFAULT_REPORTING_CURRENCY.symbol,
   isDefault: true,
 };
 
 function normalizeLedger(ledger: LedgerAccount): LedgerAccount {
+  const currencyCode = normalizeCurrencyCode(ledger.currencyCode);
   return {
     ...ledger,
-    currencyCode: ledger.currencyCode ?? 'USD',
-    currencySymbol: ledger.currencySymbol ?? '$',
+    currencyCode,
+    currencySymbol: ledger.currencySymbol ?? currencyOptionFromCode(currencyCode).symbol,
   };
 }
 
@@ -75,8 +106,13 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   const [activeLedgerId, setActiveLedgerId] = useState<string>(ALL_LEDGER_ID);
   const [transactionEditHistory, setTransactionEditHistory] = useState<TransactionEditHistory[]>([]);
   const [customCategories, setCustomCategories] = useState<CustomCategory[]>([]);
-  const [currency, setCurrencyState] = useState<string>('$');
+  const [reportingCurrency, setReportingCurrencyState] =
+    useState<ReportingCurrency>(DEFAULT_REPORTING_CURRENCY);
+  const [fxRates, setFxRates] = useState<ExchangeRatesCache | null>(null);
+  const [fxStatus, setFxStatus] = useState<FxRateStatus>('idle');
+  const [fxError, setFxError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const currency = reportingCurrency.symbol;
   const today = new Date();
   const [dateFilter, setDateFilter] = useState<DateFilter>({
     startDate: new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0],
@@ -101,9 +137,13 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
             ...t,
             ledgerId: t.ledgerId ?? DEFAULT_LEDGER_ID,
           }));
-          setTransactions(migratedTxs);
-          if (migratedTxs.some((t, i) => t.ledgerId !== txs[i]?.ledgerId)) {
-            await storage.saveTransactions(migratedTxs);
+          const materializedTxs = materializeRecurringTransactions(migratedTxs);
+          setTransactions(materializedTxs);
+          if (
+            materializedTxs.length !== txs.length ||
+            migratedTxs.some((t, i) => t.ledgerId !== txs[i]?.ledgerId)
+          ) {
+            await storage.saveTransactions(materializedTxs);
           }
         }
 
@@ -121,8 +161,19 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
         if (edits) setTransactionEditHistory(edits);
         const cats = await storage.getCategories();
         if (cats) setCustomCategories(cats);
-        const cur = await storage.getCurrency();
-        if (cur) setCurrencyState(cur);
+
+        const savedReportingCurrency = await storage.getReportingCurrency();
+        const legacyCurrencySymbol = await storage.getCurrency();
+        const nextReportingCurrency = savedReportingCurrency
+          ? currencyOptionFromCode(savedReportingCurrency.code)
+          : currencyOptionFromSymbol(legacyCurrencySymbol);
+        setReportingCurrencyState(nextReportingCurrency);
+        if (!savedReportingCurrency) {
+          await storage.setReportingCurrency(nextReportingCurrency);
+        }
+
+        const cachedRates = await storage.getExchangeRatesCache();
+        if (cachedRates) setFxRates(cachedRates);
       } catch {
         // First run
       }
@@ -166,9 +217,62 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const ledgerCurrencyCodes = useMemo(
+    () => Array.from(new Set(ledgers.map((ledger) => normalizeCurrencyCode(ledger.currencyCode)))),
+    [ledgers],
+  );
+
+  const ledgerCurrencyKey = ledgerCurrencyCodes.join(',');
+
+  useEffect(() => {
+    if (loading) return;
+
+    const needsFx = ledgerCurrencyCodes.some((code) => code !== reportingCurrency.code);
+    if (!needsFx) {
+      setFxStatus('ready');
+      setFxError(null);
+      return;
+    }
+
+    let cancelled = false;
+    const hasUsableCache =
+      fxRates !== null &&
+      ledgerCurrencyCodes.every((code) =>
+        canConvertCurrency(fxRates, code, reportingCurrency.code),
+      );
+    const hasFreshCache =
+      hasUsableCache && isExchangeRateCacheFresh(fxRates, reportingCurrency.code);
+
+    if (hasFreshCache) {
+      setFxStatus('ready');
+      setFxError(null);
+      return;
+    }
+
+    setFxStatus(hasUsableCache ? 'stale' : 'loading');
+    setFxError(null);
+
+    fetchLatestExchangeRates(reportingCurrency.code)
+      .then(async (cache) => {
+        if (cancelled) return;
+        setFxRates(cache);
+        setFxStatus('ready');
+        setFxError(null);
+        await storage.saveExchangeRatesCache(cache);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setFxStatus(hasUsableCache ? 'stale' : 'error');
+        setFxError(error instanceof Error ? error.message : 'Could not update exchange rates');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fxRates, ledgerCurrencyCodes, ledgerCurrencyKey, loading, reportingCurrency.code]);
+
   const monthlyProjectionValue = (t: Transaction) => {
-    if (!t.recurring) return 0;
-    return t.type === 'income' ? Number(t.amount) : -Number(t.amount);
+    return estimateMonthlyImpact(t);
   };
 
   const setActiveLedger = (id: string) => {
@@ -177,10 +281,10 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   };
 
   const addLedger = (ledger: Omit<LedgerAccount, 'id'>) => {
-    const nextLedger: LedgerAccount = {
+    const nextLedger: LedgerAccount = normalizeLedger({
       ...ledger,
       id: `${Date.now()}-${ledger.name.toLowerCase().replace(/\s+/g, '-')}`,
-    };
+    });
     persistLedgers([...ledgers, nextLedger]);
     setActiveLedger(nextLedger.id);
   };
@@ -189,14 +293,17 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     const ledgerId =
       t.ledgerId ??
       (activeLedgerId === ALL_LEDGER_ID ? DEFAULT_LEDGER_ID : activeLedgerId);
-    persistTransactions([{ ...t, ledgerId, id: Date.now().toString() }, ...transactions]);
+    const next = [{ ...t, ledgerId, id: Date.now().toString() }, ...transactions];
+    persistTransactions(materializeRecurringTransactions(next));
   };
 
   const updateTransaction = (updated: Transaction) => {
     const before = transactions.find((x) => x.id === updated.id);
     if (!before) return;
 
-    const nextTransactions = transactions.map((x) => (x.id === updated.id ? updated : x));
+    const nextTransactions = materializeRecurringTransactions(
+      transactions.map((x) => (x.id === updated.id ? updated : x)),
+    );
     const projectionMonthlyDelta = monthlyProjectionValue(updated) - monthlyProjectionValue(before);
     const edit: TransactionEditHistory = {
       id: `${Date.now()}-${updated.id}`,
@@ -220,10 +327,16 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     persistCategories([...customCategories, c]);
   };
 
-  const setCurrency = async (cur: string) => {
-    setCurrencyState(cur);
-    await storage.setCurrency(cur);
-  };
+  const setReportingCurrency = useCallback(async (nextCurrency: ReportingCurrency) => {
+    const normalized = currencyOptionFromCode(nextCurrency.code);
+    setReportingCurrencyState(normalized);
+    await storage.setReportingCurrency(normalized);
+    await storage.setCurrency(normalized.symbol);
+  }, []);
+
+  const setCurrency = useCallback(async (cur: string) => {
+    await setReportingCurrency(currencyOptionFromSymbol(cur));
+  }, [setReportingCurrency]);
 
   const clearAllData = async () => {
     await storage.clearAllData();
@@ -232,23 +345,60 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     setLedgers([DEFAULT_LEDGER]);
     setActiveLedgerId(ALL_LEDGER_ID);
     setCustomCategories([]);
+    setReportingCurrencyState(DEFAULT_REPORTING_CURRENCY);
+    setFxRates(null);
+    setFxStatus('idle');
+    setFxError(null);
   };
 
-  const formatMoney = useCallback((n: number) => {
-    return `${currency}${Math.abs(n).toLocaleString('en-US', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })}`;
-  }, [currency]);
+  const formatReportingMoney = useCallback((n: number) => {
+    return formatCurrencyAmount(n, reportingCurrency.symbol);
+  }, [reportingCurrency.symbol]);
+
+  const formatMoney = formatReportingMoney;
+
+  const formatCompactMoney = useCallback((n: number) => {
+    return formatCompactCurrencyAmount(n, reportingCurrency.symbol);
+  }, [reportingCurrency.symbol]);
 
   const formatMoneyForLedger = useCallback((n: number, ledgerId?: string | null) => {
     const ledger = ledgers.find((item) => item.id === ledgerId);
     const symbol = ledger?.currencySymbol ?? currency;
-    return `${symbol}${Math.abs(n).toLocaleString('en-US', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })}`;
+    return formatCurrencyAmount(n, symbol);
   }, [currency, ledgers]);
+
+  const ledgerCurrencyCodeForId = useCallback((ledgerId?: string | null) => {
+    const ledger = ledgers.find((item) => item.id === ledgerId);
+    return normalizeCurrencyCode(ledger?.currencyCode ?? DEFAULT_REPORTING_CURRENCY.code);
+  }, [ledgers]);
+
+  const convertAmountToReporting = useCallback((amount: number, fromCurrency: string) => {
+    return convertExchangeAmount(
+      amount,
+      fromCurrency,
+      reportingCurrency.code,
+      fxRates,
+    );
+  }, [fxRates, reportingCurrency.code]);
+
+  const convertTransactionAmountToReporting = useCallback((transaction: Transaction) => {
+    return convertAmountToReporting(
+      Number(transaction.amount),
+      ledgerCurrencyCodeForId(transaction.ledgerId ?? DEFAULT_LEDGER_ID),
+    );
+  }, [convertAmountToReporting, ledgerCurrencyCodeForId]);
+
+  const getTransactionAmountForActiveView = useCallback((transaction: Transaction) => {
+    if (activeLedgerId === ALL_LEDGER_ID) {
+      return convertTransactionAmountToReporting(transaction).amount;
+    }
+    return Number(transaction.amount);
+  }, [activeLedgerId, convertTransactionAmountToReporting]);
+
+  const formatActiveMoney = useCallback((n: number) => {
+    if (activeLedgerId === ALL_LEDGER_ID) return formatReportingMoney(n);
+    return formatMoneyForLedger(n, activeLedgerId);
+  }, [activeLedgerId, formatMoneyForLedger, formatReportingMoney]);
 
   const scopedTransactions = useMemo(() => {
     if (activeLedgerId === ALL_LEDGER_ID) return transactions;
@@ -268,14 +418,58 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
       const d = new Date(t.date);
       return d >= start && d <= end;
     });
-    const income = filtered
-      .filter((t) => t.type === 'income')
-      .reduce((s, t) => s + Number(t.amount), 0);
-    const expenses = filtered
-      .filter((t) => t.type === 'expense')
-      .reduce((s, t) => s + Number(t.amount), 0);
-    return { income, expenses, balance: income - expenses, count: filtered.length };
-  }, [scopedTransactions, dateFilter]);
+    const missing = new Set<string>();
+    const totals = filtered.reduce(
+      (next, transaction) => {
+        const conversion =
+          activeLedgerId === ALL_LEDGER_ID
+            ? convertTransactionAmountToReporting(transaction)
+            : { amount: Number(transaction.amount), converted: true };
+
+        if (!conversion.converted && conversion.missingCurrencyCode) {
+          missing.add(conversion.missingCurrencyCode);
+        }
+
+        if (transaction.type === 'income') {
+          next.income += conversion.amount;
+        } else {
+          next.expenses += conversion.amount;
+        }
+        return next;
+      },
+      { income: 0, expenses: 0 },
+    );
+
+    const currencyCode =
+      activeLedgerId === ALL_LEDGER_ID
+        ? reportingCurrency.code
+        : normalizeCurrencyCode(activeLedger?.currencyCode);
+    const currencySymbol =
+      activeLedgerId === ALL_LEDGER_ID
+        ? reportingCurrency.symbol
+        : activeLedger?.currencySymbol ?? currency;
+
+    return {
+      income: totals.income,
+      expenses: totals.expenses,
+      balance: totals.income - totals.expenses,
+      count: filtered.length,
+      isConverted: activeLedgerId === ALL_LEDGER_ID,
+      currencyCode,
+      currencySymbol,
+      missingCurrencyCodes: Array.from(missing),
+      rateAsOf: activeLedgerId === ALL_LEDGER_ID ? fxRates?.asOf : undefined,
+    };
+  }, [
+    activeLedger,
+    activeLedgerId,
+    convertTransactionAmountToReporting,
+    currency,
+    dateFilter,
+    fxRates,
+    reportingCurrency,
+    scopedTransactions,
+  ]);
 
   return (
     <BudgetContext.Provider
@@ -290,6 +484,10 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
         stats,
         loading,
         currency,
+        reportingCurrency,
+        fxRates,
+        fxStatus,
+        fxError,
         dateFilter,
         setDateFilter,
         setActiveLedger,
@@ -299,9 +497,16 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
         removeTransaction,
         addCustomCategory,
         setCurrency,
+        setReportingCurrency,
         clearAllData,
         formatMoney,
+        formatReportingMoney,
+        formatCompactMoney,
+        formatActiveMoney,
         formatMoneyForLedger,
+        convertAmountToReporting,
+        convertTransactionAmountToReporting,
+        getTransactionAmountForActiveView,
         maskAccountNumber: maskAccountNumberValue,
       }}
     >

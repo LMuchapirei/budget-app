@@ -7,11 +7,12 @@ interface LineChartProps {
   values: number[];
   labels: string[];
   color?: string;
+  formatTick?: (value: number) => string;
 }
 
 const PADDING = { top: 12, right: 12, bottom: 24, left: 36 };
 
-export function LineChart({ width, height, values, labels, color }: LineChartProps) {
+export function LineChart({ width, height, values, labels, color, formatTick }: LineChartProps) {
   const { colors } = useTheme();
   const finalColor = color ?? colors.rust;
   const innerW = width - PADDING.left - PADDING.right;
@@ -28,8 +29,9 @@ export function LineChart({ width, height, values, labels, color }: LineChartPro
   const path = values.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i)},${y(v)}`).join(' ');
 
   const gridLines = 4;
-  const tickFormatter = (v: number) =>
-    Math.abs(v) >= 1000 ? `$${Math.round(v / 1000)}k` : `$${Math.round(v)}`;
+  const tickFormatter =
+    formatTick ?? ((v: number) =>
+      Math.abs(v) >= 1000 ? `$${Math.round(v / 1000)}k` : `$${Math.round(v)}`);
 
   return (
     <Svg width={width} height={height}>
