@@ -9,7 +9,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { Pencil, Trash2, Repeat, X } from 'lucide-react-native';
+import { ArrowLeftRight, Pencil, Trash2, Repeat, X } from 'lucide-react-native';
 import { useTheme } from '../../context/ThemeContext';
 import type { Transaction, CustomCategory, TransactionEditHistory } from '../../types';
 import { colorFor, fonts } from '../../theme';
@@ -49,9 +49,23 @@ export function TxRow({ t, isLast, customCategories, onEdit }: TxRowProps) {
   const offsetRef = useRef(0);
 
   const isIncome = t.type === 'income';
-  const accent = colorFor(t.category, customCategories);
+  const isTransfer = Boolean(t.transferPairId);
+  const accent = isTransfer ? colors.rust : colorFor(t.category, customCategories);
   const ledger = ledgers.find((item) => item.id === t.ledgerId);
+  const counterpartLedger = ledgers.find(
+    (item) => item.id === t.transferCounterpartLedgerId,
+  );
   const maskedAccountNumber = maskAccountNumber(ledger?.accountNumber);
+  const transferTitle = isTransfer
+    ? t.transferDirection === 'out'
+      ? `Transfer to ${counterpartLedger?.name ?? 'account'}`
+      : `Transfer from ${counterpartLedger?.name ?? 'account'}`
+    : t.description;
+  const transferMeta = isTransfer
+    ? `${ledger?.name ?? 'Cash Ledger'} ${
+        t.transferDirection === 'out' ? 'to' : 'from'
+      } ${counterpartLedger?.name ?? 'another account'} - ${formatShortDate(t.date)}`
+    : `${t.category} - ${ledger?.name ?? 'Cash Ledger'} - ${formatShortDate(t.date)}`;
   const edits = useMemo(
     () => transactionEditHistory.filter((edit) => edit.transactionId === t.id),
     [transactionEditHistory, t.id],
@@ -167,18 +181,22 @@ export function TxRow({ t, isLast, customCategories, onEdit }: TxRowProps) {
             style={({ pressed }) => [styles.txRow, pressed && { opacity: 0.88 }]}
           >
             <View style={[styles.txDot, { backgroundColor: `${accent}20` }]}>
-              <View style={[styles.txDotInner, { backgroundColor: accent }]} />
+              {isTransfer ? (
+                <ArrowLeftRight size={15} color={accent} />
+              ) : (
+                <View style={[styles.txDotInner, { backgroundColor: accent }]} />
+              )}
             </View>
 
             <View style={styles.txMain}>
               <View style={styles.txTitleRow}>
                 <Text style={styles.txDescription} numberOfLines={2}>
-                  {t.description}
+                  {transferTitle}
                 </Text>
                 {t.recurring && <Repeat size={11} color={colors.stone400} />}
               </View>
               <Text style={styles.txMeta} numberOfLines={2}>
-                {t.category} - {ledger?.name ?? 'Cash Ledger'} - {formatShortDate(t.date)}
+                {transferMeta}
               </Text>
             </View>
 
@@ -186,7 +204,15 @@ export function TxRow({ t, isLast, customCategories, onEdit }: TxRowProps) {
               <Text
                 style={[
                   styles.txAmount,
-                  { color: isIncome ? colors.moss : colors.ink },
+                  {
+                    color: isTransfer
+                      ? isIncome
+                        ? colors.moss
+                        : colors.clay
+                      : isIncome
+                      ? colors.moss
+                      : colors.ink,
+                  },
                 ]}
                 numberOfLines={1}
                 adjustsFontSizeToFit
@@ -207,6 +233,7 @@ export function TxRow({ t, isLast, customCategories, onEdit }: TxRowProps) {
         accent={accent}
         ledgerName={ledger?.name ?? 'Cash Ledger'}
         ledgerCurrency={ledger?.currencyCode ?? 'USD'}
+        counterpartLedgerName={counterpartLedger?.name}
         maskedAccountNumber={maskedAccountNumber}
         onClose={() => setShowDetails(false)}
         onEdit={onEdit ? handleEdit : undefined}
@@ -271,6 +298,7 @@ function TransactionDetailsModal({
   accent,
   ledgerName,
   ledgerCurrency,
+  counterpartLedgerName,
   maskedAccountNumber,
   onClose,
   onEdit,
@@ -282,6 +310,7 @@ function TransactionDetailsModal({
   accent: string;
   ledgerName: string;
   ledgerCurrency: string;
+  counterpartLedgerName?: string;
   maskedAccountNumber: string;
   onClose: () => void;
   onEdit?: () => void;
@@ -290,8 +319,19 @@ function TransactionDetailsModal({
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const isIncome = transaction.type === 'income';
+  const isTransfer = Boolean(transaction.transferPairId);
   const recurringLabel = transaction.recurring ? getRecurringDescription(transaction) : 'No';
   const nextDueDate = transaction.recurring ? getNextOccurrenceDate(transaction) : null;
+  const transferTitle = isTransfer
+    ? transaction.transferDirection === 'out'
+      ? `Transfer to ${counterpartLedgerName ?? 'account'}`
+      : `Transfer from ${counterpartLedgerName ?? 'account'}`
+    : transaction.description;
+  const transferMeta = isTransfer
+    ? `${ledgerName} ${
+        transaction.transferDirection === 'out' ? 'to' : 'from'
+      } ${counterpartLedgerName ?? 'another account'} - ${formatShortDate(transaction.date)}`
+    : `${transaction.category} - ${ledgerName} - ${formatShortDate(transaction.date)}`;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -300,7 +340,9 @@ function TransactionDetailsModal({
         <View style={styles.sheet}>
           <View style={styles.sheetHandle} />
           <View style={styles.sheetHeader}>
-            <Text style={styles.sheetTitle}>Transaction</Text>
+            <Text style={styles.sheetTitle}>
+              {isTransfer ? 'Transfer' : 'Transaction'}
+            </Text>
             <Pressable onPress={onClose} hitSlop={8} accessibilityLabel="Close transaction details">
               <X size={20} color={colors.stone500} />
             </Pressable>
@@ -312,13 +354,15 @@ function TransactionDetailsModal({
           >
             <View style={styles.detailHero}>
               <View style={[styles.detailDot, { backgroundColor: `${accent}22` }]}>
-                <View style={[styles.txDotInner, { backgroundColor: accent }]} />
+                {isTransfer ? (
+                  <ArrowLeftRight size={17} color={accent} />
+                ) : (
+                  <View style={[styles.txDotInner, { backgroundColor: accent }]} />
+                )}
               </View>
               <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={styles.detailTitle}>{transaction.description}</Text>
-                <Text style={styles.detailMeta}>
-                  {transaction.category} - {ledgerName} - {formatShortDate(transaction.date)}
-                </Text>
+                <Text style={styles.detailTitle}>{transferTitle}</Text>
+                <Text style={styles.detailMeta}>{transferMeta}</Text>
               </View>
               <Text style={[styles.detailAmount, { color: isIncome ? colors.moss : colors.clay }]}>
                 {isIncome ? '+' : '-'}
@@ -327,10 +371,22 @@ function TransactionDetailsModal({
             </View>
 
             <View style={styles.detailGrid}>
-              <DetailItem label="Type" value={transaction.type} />
-              <DetailItem label="Recurring" value={recurringLabel} />
-              {nextDueDate ? <DetailItem label="Next due" value={formatDisplayDate(nextDueDate)} /> : null}
+              <DetailItem label="Type" value={isTransfer ? 'transfer' : transaction.type} />
+              {isTransfer ? (
+                <DetailItem
+                  label="Direction"
+                  value={transaction.transferDirection === 'out' ? 'sent' : 'received'}
+                />
+              ) : (
+                <DetailItem label="Recurring" value={recurringLabel} />
+              )}
+              {!isTransfer && nextDueDate ? (
+                <DetailItem label="Next due" value={formatDisplayDate(nextDueDate)} />
+              ) : null}
               <DetailItem label="Account" value={ledgerName} />
+              {isTransfer && counterpartLedgerName ? (
+                <DetailItem label="Counterparty" value={counterpartLedgerName} />
+              ) : null}
               <DetailItem label="Currency" value={ledgerCurrency} />
               {maskedAccountNumber ? (
                 <DetailItem label="Number" value={maskedAccountNumber} />
@@ -347,7 +403,9 @@ function TransactionDetailsModal({
                 style={styles.primaryAction}
               >
                 <Pencil size={16} color={colors.paper} />
-                <Text style={styles.primaryActionLabel}>Edit transaction</Text>
+                <Text style={styles.primaryActionLabel}>
+                  {isTransfer ? 'Edit transfer' : 'Edit transaction'}
+                </Text>
               </Pressable>
             )}
 

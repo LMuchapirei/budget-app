@@ -24,6 +24,7 @@ import { DatePickerSheet } from './DatePickerSheet';
 interface TransactionFormProps {
   onClose: () => void;
   transaction?: Transaction | null;
+  initialType?: TxType;
 }
 
 type DatePickerTarget = 'transaction' | 'recurringStart' | 'recurringEnd';
@@ -38,7 +39,7 @@ function formatDateLabel(iso: string) {
   });
 }
 
-export function TransactionForm({ onClose, transaction }: TransactionFormProps) {
+export function TransactionForm({ onClose, transaction, initialType }: TransactionFormProps) {
   const { colors } = useTheme();
   const {
     addTransaction,
@@ -66,7 +67,7 @@ export function TransactionForm({ onClose, transaction }: TransactionFormProps) 
       : activeLedgerId) ??
     selectableLedgers[0]?.id;
 
-  const [type, setType] = useState<TxType>(transaction?.type ?? 'expense');
+  const [type, setType] = useState<TxType>(transaction?.type ?? initialType ?? 'expense');
   const [amount, setAmount] = useState(transaction ? String(transaction.amount) : '');
   const [description, setDescription] = useState(transaction?.description ?? '');
   const [category, setCategory] = useState<Category>(transaction?.category ?? 'Food');

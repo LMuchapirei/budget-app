@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
 import {
   Wallet, Bell, TrendingUp, PieChart as PieIcon, Settings,
-  ChevronLeft, ChevronRight, type LucideIcon,
+  ChevronLeft, ChevronRight, Search, type LucideIcon,
 } from 'lucide-react-native';
 import { useTheme } from '../context/ThemeContext';
 import { useBudget } from '../context/BudgetContext';
@@ -13,6 +13,7 @@ import { fonts } from '../theme';
 interface HeaderProps {
   view: ViewTab;
   setView: (v: ViewTab) => void;
+  onOpenSearch?: () => void;
 }
 
 const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -25,7 +26,7 @@ function isoDate(d: Date) {
   return d.toISOString().split('T')[0];
 }
 
-export function Header({ view, setView }: HeaderProps) {
+export function Header({ view, setView, onOpenSearch }: HeaderProps) {
   const { colors } = useTheme();
   const { dateFilter, setDateFilter } = useBudget();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -83,6 +84,17 @@ export function Header({ view, setView }: HeaderProps) {
         <Text style={styles.title}>
           The <Text style={styles.titleEm}>Budget</Text>
         </Text>
+        {onOpenSearch ? (
+          <Pressable
+            onPress={onOpenSearch}
+            hitSlop={10}
+            style={styles.searchButton}
+            accessibilityLabel="Search and quick actions"
+            accessibilityRole="button"
+          >
+            <Search size={18} color={colors.rust} />
+          </Pressable>
+        ) : null}
       </View>
 
       <View style={styles.rule} />
@@ -147,6 +159,17 @@ const createStyles = (colors: any) =>
       flexDirection: 'row',
       alignItems: 'flex-end',
       justifyContent: 'space-between',
+    },
+    searchButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.cream,
+      borderWidth: 1,
+      borderColor: colors.borderSoft,
+      marginBottom: 6,
     },
     title: {
       fontFamily: fonts.displayLight,

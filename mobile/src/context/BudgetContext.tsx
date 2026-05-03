@@ -25,6 +25,7 @@ import type {
   ScheduledOccurrenceStatus,
   PaymentEvidence,
   PaymentEvidenceDraft,
+  TransferDraft,
 } from '../types';
 import { storage } from '../services/storage';
 import {
@@ -93,6 +94,9 @@ interface BudgetContextValue {
   addTransaction: (t: Omit<Transaction, 'id'>) => void;
   updateTransaction: (t: Transaction) => void;
   removeTransaction: (id: string) => void;
+  addTransfer: (draft: TransferDraft) => void;
+  updateTransfer: (pairId: string, draft: TransferDraft) => void;
+  removeTransfer: (pairId: string) => void;
   budgets: Budget[];
   budgetProgress: BudgetProgress[];
   addBudget: (b: Omit<Budget, 'id' | 'createdAt'>) => void;
@@ -675,7 +679,142 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
 
   const removeTransaction = (id: string) => {
     cleanupScheduledRecordsForSource(id, 'all');
+    const target = transactions.find((x) => x.id === id);
+    if (target?.transferPairId) {
+      // Removing one half of a transfer removes the other half too.
+      persistTransactions(
+        transactions.filter(
+          (x) => x.id !== id && x.transferPairId !== target.transferPairId,
+        ),
+      );
+      return;
+    }
     persistTransactions(transactions.filter((x) => x.id !== id));
+  };
+
+  const addTransfer = (draft: TransferDraft) => {
+    if (!draft.fromLedgerId || !draft.toLedgerId) return;
+    if (draft.fromLedgerId === draft.toLedgerId) return;
+    const amountOut = Math.abs(Number(draft.amount) || 0);
+    if (amountOut <= 0) return;
+
+    const fromLedger = ledgers.find((l) => l.id === draft.fromLedgerId);
+    const toLedger = ledgers.find((l) => l.id === draft.toLedgerId);
+    if (!fromLedger || !toLedger) return;
+
+    let amountIn = draft.amountIn != null ? Math.abs(Number(draft.amountIn)) : amountOut;
+    if (
+      draft.amountIn == null &&
+      fromLedger.currencyCode !== toLedger.currencyCode
+    ) {
+      const conversion = convertExchangeAmount(
+        amountOut,
+        fromLedger.currencyCode,
+        toLedger.currencyCode,
+        fxRates,
+      );
+      if (conversion.converted) amountIn = conversion.amount;
+      else return;
+    }
+
+    const pairId = `xfer-${Date.now()}`;
+    const date = draft.date;
+    const description =
+      draft.description?.trim() || `Transfer to ${toLedger.name}`;
+    const inverseDescription =
+      draft.description?.trim() || `Transfer from ${fromLedger.name}`;
+
+    const outTx: Transaction = {
+      id: `${pairId}-out`,
+      type: 'expense',
+      amount: amountOut,
+      description,
+      category: 'Transfer',
+      date,
+      recurring: false,
+      ledgerId: fromLedger.id,
+      transferPairId: pairId,
+      transferDirection: 'out',
+      transferCounterpartLedgerId: toLedger.id,
+    };
+
+    const inTx: Transaction = {
+      id: `${pairId}-in`,
+      type: 'income',
+      amount: amountIn,
+      description: inverseDescription,
+      category: 'Transfer',
+      date,
+      recurring: false,
+      ledgerId: toLedger.id,
+      transferPairId: pairId,
+      transferDirection: 'in',
+      transferCounterpartLedgerId: fromLedger.id,
+    };
+
+    persistTransactions([outTx, inTx, ...transactions]);
+  };
+
+  const updateTransfer = (pairId: string, draft: TransferDraft) => {
+    if (!pairId) return;
+    if (draft.fromLedgerId === draft.toLedgerId) return;
+    const halves = transactions.filter((x) => x.transferPairId === pairId);
+    if (halves.length === 0) return;
+
+    const amountOut = Math.abs(Number(draft.amount) || 0);
+    if (amountOut <= 0) return;
+
+    const fromLedger = ledgers.find((l) => l.id === draft.fromLedgerId);
+    const toLedger = ledgers.find((l) => l.id === draft.toLedgerId);
+    if (!fromLedger || !toLedger) return;
+
+    let amountIn = draft.amountIn != null ? Math.abs(Number(draft.amountIn)) : amountOut;
+    if (
+      draft.amountIn == null &&
+      fromLedger.currencyCode !== toLedger.currencyCode
+    ) {
+      const conversion = convertExchangeAmount(
+        amountOut,
+        fromLedger.currencyCode,
+        toLedger.currencyCode,
+        fxRates,
+      );
+      if (conversion.converted) amountIn = conversion.amount;
+      else return;
+    }
+
+    const description =
+      draft.description?.trim() || `Transfer to ${toLedger.name}`;
+    const inverseDescription =
+      draft.description?.trim() || `Transfer from ${fromLedger.name}`;
+
+    const next = transactions.map((x) => {
+      if (x.transferPairId !== pairId) return x;
+      if (x.transferDirection === 'out') {
+        return {
+          ...x,
+          amount: amountOut,
+          description,
+          date: draft.date,
+          ledgerId: fromLedger.id,
+          transferCounterpartLedgerId: toLedger.id,
+        };
+      }
+      return {
+        ...x,
+        amount: amountIn,
+        description: inverseDescription,
+        date: draft.date,
+        ledgerId: toLedger.id,
+        transferCounterpartLedgerId: fromLedger.id,
+      };
+    });
+    persistTransactions(next);
+  };
+
+  const removeTransfer = (pairId: string) => {
+    if (!pairId) return;
+    persistTransactions(transactions.filter((x) => x.transferPairId !== pairId));
   };
 
   const addCustomCategory = (c: CustomCategory) => {
@@ -856,6 +995,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     ) => {
       return transactions.reduce((sum, t) => {
         if (t.type !== 'expense') return sum;
+        if (t.transferPairId) return sum;
         if (t.category !== budget.category) return sum;
         if (budget.ledgerId && (t.ledgerId ?? DEFAULT_LEDGER_ID) !== budget.ledgerId) return sum;
         const d = parseTransactionDate(t.date);
@@ -1359,6 +1499,10 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     const missing = new Set<string>();
     const totals = filtered.reduce(
       (next, transaction) => {
+        // Transfers move money between accounts but don't represent income or
+        // expense. Exclude them from headline stats.
+        if (transaction.transferPairId) return next;
+
         const conversion =
           activeLedgerId === ALL_LEDGER_ID
             ? convertTransactionAmountToReporting(transaction)
@@ -1441,6 +1585,9 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
         addTransaction,
         updateTransaction,
         removeTransaction,
+        addTransfer,
+        updateTransfer,
+        removeTransfer,
         budgets,
         budgetProgress,
         addBudget,

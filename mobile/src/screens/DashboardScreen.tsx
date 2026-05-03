@@ -39,7 +39,7 @@ import type {
 } from '../types';
 import { colorFor, fonts } from '../theme';
 
-type EntryTab = 'all' | TxType;
+type EntryTab = 'all' | TxType | 'transfer';
 
 interface DashboardScreenProps {
   onEditTransaction: (t: Transaction) => void;
@@ -171,6 +171,7 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
     const totalsByDate: Record<string, { income: number; expenses: number }> = {};
 
     monthlyTxs.forEach((t) => {
+      if (t.transferPairId) return;
       if (!totalsByDate[t.date]) totalsByDate[t.date] = { income: 0, expenses: 0 };
       totalsByDate[t.date][t.type === 'income' ? 'income' : 'expenses'] +=
         getTransactionAmountForActiveView(t);
@@ -203,10 +204,20 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
 
   // Filtered recent entries based on tab
   const filteredEntries = useMemo(() => {
-    const base = monthlyTxs;
+    const collapseTransferPairs = (items: Transaction[]) => {
+      if (activeLedgerId !== ALL_LEDGER_ID) return items;
+      return items.filter((t) => !t.transferPairId || t.transferDirection === 'out');
+    };
+
+    const base = collapseTransferPairs(monthlyTxs);
     if (entryTab === 'all') return base.slice(0, 20);
-    return base.filter((t) => t.type === entryTab).slice(0, 20);
-  }, [monthlyTxs, entryTab]);
+    if (entryTab === 'transfer') {
+      return base.filter((t) => Boolean(t.transferPairId)).slice(0, 20);
+    }
+    return base
+      .filter((t) => !t.transferPairId && t.type === entryTab)
+      .slice(0, 20);
+  }, [activeLedgerId, monthlyTxs, entryTab]);
 
   const ledgerStats = useMemo(() => {
     const missing = new Set<string>();
@@ -221,6 +232,14 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
           missing.add(conversion.missingCurrencyCode);
         }
 
+        // Transfers move money between ledgers and must affect the running balance,
+        // but they should not show up in the income / expenses breakdown.
+        if (transaction.transferPairId) {
+          if (transaction.type === 'income') next.transfersNet += conversion.amount;
+          else next.transfersNet -= conversion.amount;
+          return next;
+        }
+
         if (transaction.type === 'income') {
           next.income += conversion.amount;
         } else {
@@ -228,7 +247,7 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
         }
         return next;
       },
-      { income: 0, expenses: 0 },
+      { income: 0, expenses: 0, transfersNet: 0 },
     );
 
     let openingTotal = 0;
@@ -249,7 +268,7 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
     return {
       income: totals.income,
       expenses: totals.expenses,
-      balance: openingTotal + totals.income - totals.expenses,
+      balance: openingTotal + totals.income - totals.expenses + totals.transfersNet,
       openingBalance: openingTotal,
       missingCurrencyCodes: Array.from(missing),
     };
@@ -277,6 +296,7 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
     let income = 0;
     let expenses = 0;
     scopedTransactions.forEach((t) => {
+      if (t.transferPairId) return;
       const d = parseIsoDate(t.date);
       if (d < prevStart || d > prevEnd) return;
       const amount =
@@ -302,6 +322,7 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
 
     const totalsByDate: Record<string, { income: number; expenses: number }> = {};
     monthlyTxs.forEach((t) => {
+      if (t.transferPairId) return;
       if (!totalsByDate[t.date]) totalsByDate[t.date] = { income: 0, expenses: 0 };
       totalsByDate[t.date][t.type === 'income' ? 'income' : 'expenses'] +=
         getTransactionAmountForActiveView(t);
@@ -375,6 +396,7 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
     { id: 'all', label: 'All' },
     { id: 'expense', label: 'Expenses' },
     { id: 'income', label: 'Income' },
+    { id: 'transfer', label: 'Transfers' },
   ];
 
   return (
@@ -634,7 +656,13 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
           {entryTabs.map(({ id, label }) => {
             const active = entryTab === id;
             const activeBg =
-              id === 'expense' ? colors.clay : id === 'income' ? colors.moss : colors.ink;
+              id === 'expense'
+                ? colors.clay
+                : id === 'income'
+                ? colors.moss
+                : id === 'transfer'
+                ? colors.rust
+                : colors.ink;
             return (
               <Pressable
                 key={id}
@@ -1512,6 +1540,7 @@ const createStyles = (colors: any) =>
     },
     entryTabs: {
       flexDirection: 'row',
+      flexWrap: 'wrap',
       gap: 6,
       marginBottom: 12,
       padding: 4,

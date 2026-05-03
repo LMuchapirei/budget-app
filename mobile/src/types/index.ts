@@ -267,6 +267,8 @@ export interface LedgerAccount {
   isDefault?: boolean;
 }
 
+export type TransferDirection = 'out' | 'in';
+
 export interface Transaction {
   id: string;
   type: TxType;
@@ -279,6 +281,19 @@ export interface Transaction {
   generatedFromRecurringId?: string;
   generatedOccurrenceDate?: string;
   ledgerId?: string;
+  transferPairId?: string;
+  transferDirection?: TransferDirection;
+  transferCounterpartLedgerId?: string;
+}
+
+export interface TransferDraft {
+  fromLedgerId: string;
+  toLedgerId: string;
+  amount: number;
+  amountIn?: number;
+  date: string;
+  description?: string;
+  notes?: string;
 }
 
 export interface TransactionEditHistory {

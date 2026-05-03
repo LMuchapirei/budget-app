@@ -1,6 +1,6 @@
 # Budget Mobile Memory
 
-Last updated: 2026-05-02
+Last updated: 2026-05-03
 
 ## Project
 
@@ -96,6 +96,12 @@ Last updated: 2026-05-02
 - `src/components/forms/LedgerSheet.tsx`: add/edit account sheet with archive, set-default, and delete-with-reassignment.
 - `src/components/forms/BudgetSheet.tsx`: add/edit/delete monthly category budget sheet with optional per-ledger scope and carry-over flag.
 - `src/components/forms/GoalSheet.tsx`: add/edit/delete savings goals linked to active accounts with pause/resume and mark-complete actions.
+- `src/components/forms/TransferForm.tsx`: add/edit/delete account transfers, including cross-currency received amounts.
+- `src/components/forms/QuickActionsSheet.tsx`: command-palette overlay with live transaction search and quick-action chips, opened from a Search button on the Header.
+- `src/screens/OnboardingScreen.tsx`: 4-slide first-launch intro with privacy policy link and a data-handling summary opener.
+- `src/components/forms/DataHandlingSheet.tsx`: in-app data-handling summary that mirrors the Play Console data-safety form. Linked from onboarding and Settings.
+- `src/services/legal.ts`: editable constants for the privacy policy URL and support email surfaced in onboarding and Settings.
+- `src/context/OnboardingContext.tsx`: tiny context exposing `replay()` so Settings can re-open the intro after first run.
 - `src/components/ui/MonthlySummary.tsx`: unified dashboard summary card with net balance, sparkline, income/spent/savings metrics, and period-over-period deltas.
 - `src/components/ui/Sparkline.tsx`: tiny axis-less SVG sparkline used inside summary card.
 - `src/components/ui/TxRow.tsx`: transaction row gestures, detail sheet, audit trail.
@@ -108,9 +114,24 @@ Last updated: 2026-05-02
 
 ## Known Follow-Ups
 
-- Add transfer transactions between accounts.
 - Clean remaining encoded text artifacts in older screens if they appear in the UI.
 - Add tests once the feature set settles.
+- Replace the placeholder privacy policy URL in `src/services/legal.ts` with the production-hosted page before submitting to the Play Store.
+
+## Quick actions and search
+
+- The Header has a Search button (top-right of the title row) that opens a Quick Actions sheet from anywhere in the app.
+- The sheet doubles as a command palette: an empty search shows quick action chips (Add expense, Add income, Transfer, jump to Bills/Reports/Projections); typing filters across description, category, ledger name, transfer counterpart name, and amount.
+- Transfer pairs are collapsed in search results — only the "out" half is shown to avoid duplicates. Tapping a transfer result opens the TransferForm; tapping a regular transaction opens the TransactionForm.
+- "Add expense" and "Add income" share a single TransactionForm; the type is preselected via the new `initialType` prop.
+
+## Onboarding
+
+- 4-slide first-launch intro: Welcome, Track, Plan, Privacy first.
+- Pager uses a horizontal `ScrollView` with `pagingEnabled` so no native module is required.
+- Status persisted under `budget:onboarded:v1` (ISO timestamp). `clearAllData` does not touch it.
+- The privacy slide links to the privacy policy URL and opens the in-app data-handling summary.
+- Settings has an About card with `How data is handled`, `Privacy policy`, and `Show intro again` rows. Replay is wired through `OnboardingContext` so the layout re-renders the intro on demand.
 
 ## Partial Features
 
@@ -141,6 +162,15 @@ Last updated: 2026-05-02
   - Individual accounts can have their own currency symbol.
   - Transaction rows and selected account totals use account currency.
   - All Accounts, budgets, reports, and projections convert mixed-currency values into the selected reporting currency where appropriate.
+- Transfers:
+  - The floating add button lets users choose a normal income/expense entry or a transfer between accounts.
+  - Transfers are represented as linked debit/credit entries with a shared `transferPairId`.
+  - Same-currency transfers use the same amount on both sides.
+  - Cross-currency transfers auto-convert when cached rates are available and require a manual received amount when rates are missing.
+  - Editing a transfer opens the transfer form and updates both linked entries together.
+  - Removing either transfer half removes the pair.
+  - Transfers affect individual account balances but are excluded from headline income/expense stats, budgets, reports, and cash-flow charts.
+  - All Accounts recent entries collapse each transfer pair into one visible row and expose a dedicated Transfers filter.
 - Recurring transactions:
   - Transactions can be marked as recurring.
   - Recurring schedules support daily, weekly, monthly, and yearly frequencies.
@@ -205,9 +235,11 @@ Last updated: 2026-05-02
   - Users can add custom categories.
   - Custom categories cannot be edited, deleted, assigned icons, or given custom colors from the UI.
 - Reports:
-  - Spending by category and monthly comparison exist.
-  - Reports still use all transactions rather than fully respecting ledger/account and date filters everywhere.
-  - No drill-down report views yet.
+  - Scope chip at the top shows the active period and selected ledger.
+  - "Spending by Category" respects both the active ledger (via `scopedTransactions`) and the active date filter.
+  - "Monthly Comparison" stays on a 6-month rolling window regardless of date filter, but respects the active ledger.
+  - Tapping a category row opens a drill-down sheet listing the contributing transactions for the active period and scope, using the standard `TxRow` component.
+  - "Over Budget" alerts continue to read from `budgetProgress` (current calendar month).
 - Cash flow:
   - Dashboard cash flow now uses cumulative income/expense totals.
   - It does not yet show net balance line, account-specific legend labels, or tooltip/tap inspection.
@@ -224,10 +256,6 @@ Last updated: 2026-05-02
 - Account management:
   - Reorder accounts in the chip strip.
   - Per-account credit limit / overdraft warning for credit cards and loans.
-- Transfers:
-  - Transfer money between accounts.
-  - Represent transfer as linked debit/credit entries.
-  - Exclude transfers from income/expense reports where appropriate.
 - Savings goals:
   - Manual contribution mode.
   - Historical goal progress chart.

@@ -70,6 +70,9 @@ export interface DataService {
   getAppLock(): Promise<boolean>;
   setAppLock(enabled: boolean): Promise<void>;
 
+  getOnboardedAt(): Promise<string | null>;
+  setOnboardedAt(value: string | null): Promise<void>;
+
   clearAllData(): Promise<void>;
 }
 
@@ -90,6 +93,7 @@ class LocalDataService implements DataService {
   private readonly SCHEDULED_OCCURRENCES_KEY = 'budget:scheduled-occurrences:v2';
   private readonly PAYMENT_EVIDENCE_KEY = 'budget:payment-evidence:v1';
   private readonly APPLOCK_KEY = 'budget:applock:v1';
+  private readonly ONBOARDED_KEY = 'budget:onboarded:v1';
 
   async getTheme(): Promise<string | null> {
     return AsyncStorage.getItem(this.THEME_KEY);
@@ -294,6 +298,18 @@ class LocalDataService implements DataService {
 
   async setAppLock(enabled: boolean): Promise<void> {
     await AsyncStorage.setItem(this.APPLOCK_KEY, enabled ? 'true' : 'false');
+  }
+
+  async getOnboardedAt(): Promise<string | null> {
+    return AsyncStorage.getItem(this.ONBOARDED_KEY);
+  }
+
+  async setOnboardedAt(value: string | null): Promise<void> {
+    if (value === null) {
+      await AsyncStorage.removeItem(this.ONBOARDED_KEY);
+      return;
+    }
+    await AsyncStorage.setItem(this.ONBOARDED_KEY, value);
   }
 
   async clearAllData(): Promise<void> {

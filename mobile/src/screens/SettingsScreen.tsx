@@ -15,8 +15,13 @@ import { fonts } from '../theme';
 import {
   Bell,
   Check,
+  ChevronRight,
+  ExternalLink,
+  FileText,
+  Info,
   Moon,
   Palette,
+  ShieldCheck,
   Sparkles,
   Sun,
   Trash2,
@@ -27,7 +32,10 @@ import {
 } from 'lucide-react-native';
 import { REPORTING_CURRENCY_OPTIONS } from '../utils/currency';
 import { ACCENT_SWATCHES, type ThemeMode, type ThemePresetId } from '../context/ThemeContext';
+import { useOnboarding } from '../context/OnboardingContext';
 import type { FontPairId } from '../theme';
+import { PRIVACY_POLICY_URL } from '../services/legal';
+import { DataHandlingSheet } from '../components/forms/DataHandlingSheet';
 
 export function SettingsScreen() {
   const {
@@ -53,10 +61,16 @@ export function SettingsScreen() {
     syncScheduledNotifications,
   } = useBudget();
   const { isAppLockEnabled, setAppLockEnabled } = useLock();
+  const { replay: replayOnboarding } = useOnboarding();
 
   const styles = React.useMemo(() => createStyles(colors), [colors]);
   const [reminderBusy, setReminderBusy] = useState(false);
   const [reminderNote, setReminderNote] = useState('');
+  const [showDataHandling, setShowDataHandling] = useState(false);
+
+  const openPrivacyPolicy = () => {
+    Linking.openURL(PRIVACY_POLICY_URL).catch(() => undefined);
+  };
 
   const reminderEnabled = scheduledNotificationStatus === 'granted';
   const reminderDenied = scheduledNotificationStatus === 'denied';
@@ -354,6 +368,60 @@ export function SettingsScreen() {
         </View>
       </View>
 
+      <Text style={styles.sectionHeader}>About</Text>
+      <View style={styles.card}>
+        <Pressable
+          onPress={() => setShowDataHandling(true)}
+          style={styles.aboutRow}
+          accessibilityRole="button"
+        >
+          <View style={styles.rowLeft}>
+            <ShieldCheck size={20} color={colors.stone500} />
+            <View>
+              <Text style={styles.rowLabel}>How data is handled</Text>
+              <Text style={styles.aboutMeta}>
+                What stays on this device and what doesn't
+              </Text>
+            </View>
+          </View>
+          <ChevronRight size={16} color={colors.stone500} />
+        </Pressable>
+
+        <View style={styles.divider} />
+
+        <Pressable
+          onPress={openPrivacyPolicy}
+          style={styles.aboutRow}
+          accessibilityRole="link"
+        >
+          <View style={styles.rowLeft}>
+            <FileText size={20} color={colors.stone500} />
+            <View>
+              <Text style={styles.rowLabel}>Privacy policy</Text>
+              <Text style={styles.aboutMeta}>Opens in your browser</Text>
+            </View>
+          </View>
+          <ExternalLink size={16} color={colors.stone500} />
+        </Pressable>
+
+        <View style={styles.divider} />
+
+        <Pressable
+          onPress={replayOnboarding}
+          style={styles.aboutRow}
+          accessibilityRole="button"
+        >
+          <View style={styles.rowLeft}>
+            <Info size={20} color={colors.stone500} />
+            <View>
+              <Text style={styles.rowLabel}>Show intro again</Text>
+              <Text style={styles.aboutMeta}>Replay the welcome screens</Text>
+            </View>
+          </View>
+          <ChevronRight size={16} color={colors.stone500} />
+        </Pressable>
+      </View>
+
       <Text style={styles.sectionHeader}>Danger Zone</Text>
       <View style={styles.card}>
         <Pressable
@@ -367,6 +435,11 @@ export function SettingsScreen() {
           This will permanently delete all transactions and custom categories from your device.
         </Text>
       </View>
+
+      <DataHandlingSheet
+        visible={showDataHandling}
+        onClose={() => setShowDataHandling(false)}
+      />
     </View>
   );
 }
@@ -601,6 +674,20 @@ const createStyles = (colors: any) =>
       textTransform: 'uppercase',
       color: colors.stone500,
       marginTop: 8,
+    },
+    aboutRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingVertical: 14,
+      paddingHorizontal: 16,
+      gap: 12,
+    },
+    aboutMeta: {
+      fontFamily: fonts.body,
+      fontSize: 11,
+      color: colors.stone500,
+      marginTop: 2,
     },
     dangerRow: {
       flexDirection: 'row',

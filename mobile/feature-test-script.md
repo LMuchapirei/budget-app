@@ -13,12 +13,95 @@ This document is the living test script for feature work in the mobile budget ap
 
 | Feature | Status | First Test Scope | Notes |
 | --- | --- | --- | --- |
+| Account transfers | In progress | Add menu, transfer form, recent entries, account balances | Wave 1 #2 |
 | Monthly category budgets | In progress | Dashboard, Reports, reporting currency | Wave 2 #1 |
 | Savings goals | In progress | Dashboard, linked ledger balance, goal status | Wave 2 #2 |
 | Date picker UX | In progress | Transaction form, recurring schedules, goal deadlines | Shared calendar picker |
 | Bills & subscriptions tracker | In progress | Bills tab, confirmations, skips, local reminders | Wave 2 #3 |
 | Recurring engine controls | In progress | Confirm inbox, skip, postpone, pause/resume, auto-post | Wave 2 #4 |
 | Bill payment evidence | In progress | Receipt photo, pasted alert, reference proof | Bills proof layer |
+
+## Account Transfers
+
+### What This Feature Does
+
+Users can move money between two accounts without treating the movement as income or spending. A transfer is stored as two linked entries: an expense from the source account and income into the destination account. Reports, budgets, and headline income/expense stats exclude these linked entries, while account balances still move correctly.
+
+### Setup
+
+1. Open the app.
+2. Go to `Ledger`.
+3. Create at least two active accounts.
+4. Optional multi-currency setup: make the accounts use different currencies, for example `USD` and `ZAR`.
+
+### Test Case 1: Create A Same-Currency Transfer
+
+1. Tap the floating `+` button.
+2. Choose `Transfer between accounts`.
+3. Pick a `From` account and a different `To` account.
+4. Enter an amount.
+5. Pick a date.
+6. Save the transfer.
+
+Expected result:
+
+- The source account balance decreases by the sent amount.
+- The destination account balance increases by the received amount.
+- `Income`, `Expenses`, budgets, and reports do not count the transfer as real income/spending.
+- `Recent Entries` shows the transfer under the `Transfers` tab.
+
+### Test Case 2: Multi-Currency Transfer
+
+1. Create two accounts with different currencies.
+2. Start a transfer between them.
+3. Enter the sent amount.
+4. If FX rates are available, review the automatic received amount hint.
+5. If FX rates are unavailable, enter the received amount manually.
+6. Save the transfer.
+
+Expected result:
+
+- The source side uses the source account currency.
+- The destination side uses the destination account currency.
+- The form requires a manual received amount when no exchange rate is available.
+- All Accounts still displays converted estimates in the reporting currency.
+
+### Test Case 3: Edit A Transfer
+
+1. Open `Recent Entries`.
+2. Tap or swipe a transfer row and choose edit.
+3. Change the amount, direction, date, or note.
+4. Save the transfer.
+
+Expected result:
+
+- Both linked entries update together.
+- The transfer does not open in the normal income/expense editor.
+- Account balances reflect the revised movement.
+
+### Test Case 4: Delete A Transfer
+
+1. Open a transfer row.
+2. Delete it from the transfer form or swipe-delete one transfer row.
+
+Expected result:
+
+- Both linked entries are removed.
+- Neither account keeps a stale half-transfer.
+- Reports and budgets remain unchanged except for account balances.
+
+### Trial Log
+
+| Date | Tester | Build/Branch | Scenario | Result | Follow-Up |
+| --- | --- | --- | --- | --- | --- |
+| 2026-05-02 | Codex | Working tree | Transfer form wiring and row behavior smoke test | `tsc --noEmit` passed | Manual app/device pass still needed |
+
+### Evolution Notes
+
+- Transfers are stored as linked debit/credit transactions with a shared `transferPairId`.
+- The floating add button now lets the user choose income/expense or account transfer.
+- All Accounts collapses a transfer pair into one recent-entry row to avoid duplicate visual noise.
+- Cross-currency transfers auto-convert when rates are available and require a manual received amount when rates are missing.
 
 ## Monthly Category Budgets
 
