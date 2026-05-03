@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -11,7 +12,9 @@ import {
   Bell,
   CalendarDays,
   CheckCircle2,
+  ChevronRight,
   Clock,
+  Eye,
   Paperclip,
   RotateCcw,
   ShieldCheck,
@@ -368,6 +371,9 @@ function OccurrenceCard({
     evidence.find((item) => item.confidence === 'matched') ??
     evidence.find((item) => item.confidence === 'parsed') ??
     evidence[0];
+  const firstPhotoEvidence = evidence.find(
+    (item) => item.type === 'photo' && Boolean(item.attachmentUri),
+  );
 
   return (
     <View style={styles.occurrenceCard}>
@@ -418,29 +424,63 @@ function OccurrenceCard({
           </Text>
           <Pressable
             onPress={onProof}
-            style={[
+            accessibilityRole="button"
+            accessibilityLabel={
+              evidence.length > 0
+                ? `View ${evidence.length} proof attachment${evidence.length === 1 ? '' : 's'}`
+                : 'Add proof of payment'
+            }
+            hitSlop={6}
+            style={({ pressed }) => [
               styles.proofPill,
-              evidence.length > 0 && {
-                borderColor: colors.moss,
-                backgroundColor: colors.paper,
-              },
+              evidence.length > 0
+                ? {
+                    borderColor: colors.moss,
+                    backgroundColor: colors.cream,
+                  }
+                : {
+                    borderColor: colors.rust,
+                    borderStyle: 'dashed',
+                  },
+              pressed && { opacity: 0.6 },
             ]}
           >
-            {evidence.length > 0 ? (
-              <ShieldCheck size={12} color={colors.moss} />
+            {firstPhotoEvidence?.attachmentUri ? (
+              <Image
+                source={{ uri: firstPhotoEvidence.attachmentUri }}
+                style={styles.proofThumb}
+              />
+            ) : evidence.length > 0 ? (
+              <View style={[styles.proofIconWrap, { backgroundColor: colors.moss }]}>
+                <ShieldCheck size={11} color={colors.paper} />
+              </View>
             ) : (
-              <Paperclip size={12} color={colors.stone500} />
+              <View style={[styles.proofIconWrap, { backgroundColor: colors.chip }]}>
+                <Paperclip size={11} color={colors.rust} />
+              </View>
             )}
-            <Text
-              style={[
-                styles.proofLabel,
-                evidence.length > 0 && { color: colors.moss },
-              ]}
-            >
-              {evidence.length > 0
-                ? `${evidence.length} proof${evidence.length === 1 ? '' : 's'} / ${evidenceConfidenceLabel(strongestEvidence)}`
-                : 'No proof'}
-            </Text>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text
+                style={[
+                  styles.proofLabel,
+                  { color: evidence.length > 0 ? colors.moss : colors.rust },
+                ]}
+                numberOfLines={1}
+              >
+                {evidence.length > 0
+                  ? `View ${evidence.length} proof${evidence.length === 1 ? '' : 's'}`
+                  : 'Tap to add proof'}
+              </Text>
+              {evidence.length > 0 && strongestEvidence ? (
+                <Text style={styles.proofMeta} numberOfLines={1}>
+                  {evidenceConfidenceLabel(strongestEvidence)}
+                </Text>
+              ) : null}
+            </View>
+            <ChevronRight
+              size={13}
+              color={evidence.length > 0 ? colors.moss : colors.rust}
+            />
           </Pressable>
         </View>
 
@@ -462,8 +502,19 @@ function OccurrenceCard({
                 <Text style={styles.actionLabel}>Confirm</Text>
               </Pressable>
               <Pressable onPress={onProof} style={styles.secondaryAction}>
-                <Paperclip size={13} color={colors.stone600} />
-                <Text style={styles.secondaryActionLabel}>Proof</Text>
+                {evidence.length > 0 ? (
+                  <Eye size={13} color={colors.moss} />
+                ) : (
+                  <Paperclip size={13} color={colors.stone600} />
+                )}
+                <Text
+                  style={[
+                    styles.secondaryActionLabel,
+                    evidence.length > 0 && { color: colors.moss },
+                  ]}
+                >
+                  {evidence.length > 0 ? 'View proof' : 'Add proof'}
+                </Text>
               </Pressable>
               <Pressable onPress={onPostpone} style={styles.secondaryAction}>
                 <CalendarDays size={13} color={colors.stone600} />
@@ -477,8 +528,19 @@ function OccurrenceCard({
           ) : null}
           {!canAct && !canUndo ? (
             <Pressable onPress={onProof} style={styles.secondaryAction}>
-              <Paperclip size={13} color={colors.stone600} />
-              <Text style={styles.secondaryActionLabel}>Proof</Text>
+              {evidence.length > 0 ? (
+                <Eye size={13} color={colors.moss} />
+              ) : (
+                <Paperclip size={13} color={colors.stone600} />
+              )}
+              <Text
+                style={[
+                  styles.secondaryActionLabel,
+                  evidence.length > 0 && { color: colors.moss },
+                ]}
+              >
+                {evidence.length > 0 ? 'View proof' : 'Add proof'}
+              </Text>
             </Pressable>
           ) : null}
         </View>
@@ -715,19 +777,39 @@ const createStyles = (colors: any) =>
     proofPill: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 5,
+      gap: 8,
       borderWidth: 1,
       borderColor: colors.borderSoft,
-      borderRadius: 999,
+      borderRadius: 12,
       paddingHorizontal: 8,
-      paddingVertical: 3,
+      paddingVertical: 6,
       backgroundColor: colors.chip,
       maxWidth: '100%',
+      flexShrink: 1,
+    },
+    proofIconWrap: {
+      width: 22,
+      height: 22,
+      borderRadius: 11,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    proofThumb: {
+      width: 26,
+      height: 26,
+      borderRadius: 6,
+      backgroundColor: colors.chip,
     },
     proofLabel: {
       fontFamily: fonts.bodyMedium,
+      fontSize: 11,
+      letterSpacing: 0.2,
+    },
+    proofMeta: {
+      fontFamily: fonts.body,
       fontSize: 10,
       color: colors.stone500,
+      marginTop: 1,
     },
     warningText: {
       fontFamily: fonts.body,

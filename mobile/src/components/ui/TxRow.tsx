@@ -28,10 +28,8 @@ interface TxRowProps {
 }
 
 const SWIPE_OPEN = 86;
-const SWIPE_TRIGGER = 46;
-
-const clamp = (value: number, min: number, max: number) =>
-  Math.min(max, Math.max(min, value));
+const SWIPE_TRIGGER = 38;
+const FLICK_VELOCITY = 0.45;
 
 export function TxRow({ t, isLast, customCategories, onEdit }: TxRowProps) {
   const { colors } = useTheme();
@@ -44,8 +42,11 @@ export function TxRow({ t, isLast, customCategories, onEdit }: TxRowProps) {
   } = useBudget();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [showDetails, setShowDetails] = useState(false);
+  // `translateX` is the source of truth for the row's horizontal offset. During a
+  // drag we accumulate the delta via `Animated.event` (no JS setValue per move).
+  // On release we flatten the offset and animate to the snap target.
   const translateX = useRef(new Animated.Value(0)).current;
-  const currentOffset = useRef(0);
+  const offsetRef = useRef(0);
 
   const isIncome = t.type === 'income';
   const accent = colorFor(t.category, customCategories);
@@ -56,18 +57,27 @@ export function TxRow({ t, isLast, customCategories, onEdit }: TxRowProps) {
     [transactionEditHistory, t.id],
   );
 
-  const animateTo = (value: number) => {
+  // Clamp at the edges via interpolation rather than per-frame Math.min/max calls.
+  const clampedTranslate = translateX.interpolate({
+    inputRange: [-SWIPE_OPEN, 0, SWIPE_OPEN],
+    outputRange: [-SWIPE_OPEN, 0, SWIPE_OPEN],
+    extrapolate: 'clamp',
+  });
+
+  const settleTo = (value: number) => {
+    offsetRef.current = value;
     Animated.spring(translateX, {
       toValue: value,
-      useNativeDriver: true,
-      friction: 8,
-      tension: 80,
-    }).start(() => {
-      currentOffset.current = value;
-    });
+      useNativeDriver: false,
+      friction: 14,
+      tension: 70,
+      overshootClamping: true,
+      restSpeedThreshold: 0.5,
+      restDisplacementThreshold: 0.5,
+    }).start();
   };
 
-  const closeSwipe = () => animateTo(0);
+  const closeSwipe = () => settleTo(0);
 
   const handleEdit = () => {
     closeSwipe();
@@ -81,30 +91,45 @@ export function TxRow({ t, isLast, customCategories, onEdit }: TxRowProps) {
 
   const panResponder = useRef(
     PanResponder.create({
+      // Don't claim on touch start — let the surrounding ScrollView and the inner
+      // Pressable handle taps. Only claim once the gesture is clearly horizontal.
+      onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (_, gesture) =>
-        Math.abs(gesture.dx) > 10 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.3,
+        Math.abs(gesture.dx) > 8 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 2,
       onPanResponderGrant: () => {
-        translateX.stopAnimation();
+        translateX.stopAnimation((value) => {
+          offsetRef.current = value;
+          // Move the current value into the offset and reset the value to 0 so the
+          // upcoming event-driven dx accumulates cleanly without re-reading state.
+          translateX.setOffset(value);
+          translateX.setValue(0);
+        });
       },
-      onPanResponderMove: (_, gesture) => {
-        translateX.setValue(clamp(currentOffset.current + gesture.dx, -SWIPE_OPEN, SWIPE_OPEN));
-      },
+      onPanResponderMove: Animated.event(
+        [null, { dx: translateX }],
+        { useNativeDriver: false },
+      ),
       onPanResponderRelease: (_, gesture) => {
-        const next = currentOffset.current + gesture.dx;
-        if (next > SWIPE_TRIGGER && onEdit) {
-          animateTo(SWIPE_OPEN);
-        } else if (next < -SWIPE_TRIGGER) {
-          animateTo(-SWIPE_OPEN);
-        } else {
-          closeSwipe();
+        translateX.flattenOffset();
+        const next = offsetRef.current + gesture.dx;
+        const vx = gesture.vx;
+        let target = 0;
+        if ((next > SWIPE_TRIGGER || vx > FLICK_VELOCITY) && onEdit) {
+          target = SWIPE_OPEN;
+        } else if (next < -SWIPE_TRIGGER || vx < -FLICK_VELOCITY) {
+          target = -SWIPE_OPEN;
         }
+        settleTo(target);
       },
-      onPanResponderTerminate: () => closeSwipe(),
+      onPanResponderTerminate: () => {
+        translateX.flattenOffset();
+        settleTo(0);
+      },
     }),
   ).current;
 
   const handleRowPress = () => {
-    if (currentOffset.current !== 0) {
+    if (offsetRef.current !== 0) {
       closeSwipe();
       return;
     }
@@ -135,7 +160,7 @@ export function TxRow({ t, isLast, customCategories, onEdit }: TxRowProps) {
 
         <Animated.View
           {...panResponder.panHandlers}
-          style={[styles.animatedRow, { transform: [{ translateX }] }]}
+          style={[styles.animatedRow, { transform: [{ translateX: clampedTranslate }] }]}
         >
           <Pressable
             onPress={handleRowPress}

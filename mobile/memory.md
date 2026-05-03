@@ -96,6 +96,8 @@ Last updated: 2026-05-02
 - `src/components/forms/LedgerSheet.tsx`: add/edit account sheet with archive, set-default, and delete-with-reassignment.
 - `src/components/forms/BudgetSheet.tsx`: add/edit/delete monthly category budget sheet with optional per-ledger scope and carry-over flag.
 - `src/components/forms/GoalSheet.tsx`: add/edit/delete savings goals linked to active accounts with pause/resume and mark-complete actions.
+- `src/components/ui/MonthlySummary.tsx`: unified dashboard summary card with net balance, sparkline, income/spent/savings metrics, and period-over-period deltas.
+- `src/components/ui/Sparkline.tsx`: tiny axis-less SVG sparkline used inside summary card.
 - `src/components/ui/TxRow.tsx`: transaction row gestures, detail sheet, audit trail.
 - `src/charts/AreaChart.tsx`: cash flow chart rendering.
 - `src/utils/recurring.ts`: recurring schedule engine, occurrence generation, due dates, monthly impact estimates.

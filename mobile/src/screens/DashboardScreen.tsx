@@ -16,15 +16,12 @@ import {
   Pencil,
   Plus,
   Target,
-  TrendingUp,
-  TrendingDown,
-  Wallet,
   X,
 } from 'lucide-react-native';
 import { useTheme } from '../context/ThemeContext';
 import { ALL_LEDGER_ID, useBudget } from '../context/BudgetContext';
 import { AreaChart } from '../charts/AreaChart';
-import { StatCard } from '../components/ui/StatCard';
+import { MonthlySummary } from '../components/ui/MonthlySummary';
 import { Section, Empty, Legend } from '../components/ui/Layout';
 import { TxRow } from '../components/ui/TxRow';
 import { LedgerSheet } from '../components/forms/LedgerSheet';
@@ -265,6 +262,102 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
     scopedTransactions,
   ]);
 
+  // Prior period of equal length, immediately before the current dateFilter window.
+  // Used for "vs last period" deltas in the monthly summary card.
+  const prevStats = useMemo(() => {
+    const start = parseIsoDate(dateFilter.startDate);
+    const end = parseIsoDate(dateFilter.endDate);
+    end.setHours(0, 0, 0, 0);
+    const dayCount = Math.round((end.getTime() - start.getTime()) / MS_PER_DAY) + 1;
+    const prevEnd = new Date(start.getTime() - MS_PER_DAY);
+    prevEnd.setHours(23, 59, 59, 999);
+    const prevStart = new Date(prevEnd.getTime() - (dayCount - 1) * MS_PER_DAY);
+    prevStart.setHours(0, 0, 0, 0);
+
+    let income = 0;
+    let expenses = 0;
+    scopedTransactions.forEach((t) => {
+      const d = parseIsoDate(t.date);
+      if (d < prevStart || d > prevEnd) return;
+      const amount =
+        activeLedgerId === ALL_LEDGER_ID
+          ? convertTransactionAmountToReporting(t).amount
+          : Number(t.amount);
+      if (t.type === 'income') income += amount;
+      else expenses += amount;
+    });
+    return { income, expenses, balance: income - expenses };
+  }, [
+    activeLedgerId,
+    convertTransactionAmountToReporting,
+    dateFilter,
+    scopedTransactions,
+  ]);
+
+  // Daily cumulative net values for the summary sparkline (one point per day, capped at 60).
+  const netSparkline = useMemo(() => {
+    const startMs = parseIsoDate(dateFilter.startDate).getTime();
+    const endMs = parseIsoDate(dateFilter.endDate).getTime();
+    if (endMs < startMs) return [] as number[];
+
+    const totalsByDate: Record<string, { income: number; expenses: number }> = {};
+    monthlyTxs.forEach((t) => {
+      if (!totalsByDate[t.date]) totalsByDate[t.date] = { income: 0, expenses: 0 };
+      totalsByDate[t.date][t.type === 'income' ? 'income' : 'expenses'] +=
+        getTransactionAmountForActiveView(t);
+    });
+
+    const totalDays = Math.round((endMs - startMs) / MS_PER_DAY) + 1;
+    const step = Math.max(1, Math.ceil(totalDays / 60));
+    const points: number[] = [];
+    let cumulativeNet = 0;
+    for (let i = 0; i < totalDays; i++) {
+      const d = new Date(startMs + i * MS_PER_DAY);
+      const key = isoDate(d);
+      const dayTotals = totalsByDate[key];
+      if (dayTotals) {
+        cumulativeNet += dayTotals.income - dayTotals.expenses;
+      }
+      if (i % step !== 0 && i !== totalDays - 1) continue;
+      points.push(cumulativeNet);
+    }
+    return points;
+  }, [monthlyTxs, dateFilter, getTransactionAmountForActiveView]);
+
+  const summaryDeltas = useMemo(() => {
+    const pct = (current: number, prev: number) => {
+      if (!Number.isFinite(prev) || prev === 0) {
+        return current === 0 ? 0 : null;
+      }
+      return ((current - prev) / Math.abs(prev)) * 100;
+    };
+    const savings = (income: number, expenses: number) =>
+      income > 0 ? ((income - expenses) / income) * 100 : null;
+    return {
+      net: pct(stats.balance, prevStats.balance),
+      income: pct(stats.income, prevStats.income),
+      expenses: pct(stats.expenses, prevStats.expenses),
+      savings: savings(stats.income, stats.expenses),
+      prevSavings: savings(prevStats.income, prevStats.expenses),
+    };
+  }, [prevStats, stats]);
+
+  const summaryCardWidth = width - 24 * 2;
+
+  const summaryEyebrow = useMemo(() => {
+    const start = parseIsoDate(dateFilter.startDate);
+    const end = parseIsoDate(dateFilter.endDate);
+    const sameMonth =
+      start.getFullYear() === end.getFullYear() && start.getMonth() === end.getMonth();
+    const startOfMonth =
+      start.getDate() === 1 &&
+      end.getDate() === new Date(end.getFullYear(), end.getMonth() + 1, 0).getDate();
+    if (sameMonth && startOfMonth) {
+      return start.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }).toUpperCase();
+    }
+    return 'SELECTED PERIOD';
+  }, [dateFilter]);
+
   const chartW = width - 24 * 2 - 16 * 2;
   const formatLedgerMoney = formatActiveMoney;
   const maskedAccountNumber = activeLedger ? maskAccountNumber(activeLedger.accountNumber) : '';
@@ -389,33 +482,22 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
         </ScrollView>
       </View>
 
-      <View style={{ gap: 12 }}>
-        <StatCard
-          label="Income this month"
-          rawValue={stats.income}
-          value={formatActiveMoney(stats.income)}
-          color={colors.moss}
-          Icon={TrendingUp}
-          accent="i."
-        />
-        <StatCard
-          label="Expenses this month"
-          rawValue={stats.expenses}
-          value={formatActiveMoney(stats.expenses)}
-          color={colors.clay}
-          Icon={TrendingDown}
-          accent="ii."
-        />
-        <StatCard
-          label="Net balance"
-          rawValue={stats.balance}
-          value={formatActiveMoney(Math.abs(stats.balance))}
-          color={stats.balance >= 0 ? colors.ink : colors.clay}
-          Icon={Wallet}
-          accent="iii."
-          signed
-        />
-      </View>
+      <MonthlySummary
+        eyebrow={summaryEyebrow}
+        netLabel="Net for the period"
+        netValue={formatActiveMoney(Math.abs(stats.balance))}
+        netRaw={stats.balance}
+        netDeltaPct={summaryDeltas.net}
+        income={stats.income}
+        incomeDeltaPct={summaryDeltas.income}
+        expenses={stats.expenses}
+        expensesDeltaPct={summaryDeltas.expenses}
+        savingsRatePct={summaryDeltas.savings}
+        prevSavingsRatePct={summaryDeltas.prevSavings}
+        formatMoney={formatActiveMoney}
+        sparklineValues={netSparkline}
+        cardWidth={summaryCardWidth}
+      />
 
       <Section title="Cash Flow" subtitle="Cumulative">
         {monthlyTxs.length === 0 ? (
