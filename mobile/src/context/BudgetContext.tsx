@@ -137,6 +137,9 @@ interface BudgetContextValue {
   requestBillNotificationPermission: () => Promise<BillNotificationStatus>;
   syncBillNotifications: () => Promise<BillNotificationSyncResult>;
   addCustomCategory: (c: CustomCategory) => void;
+  updateCustomCategory: (c: CustomCategory) => void;
+  removeCustomCategory: (id: string, reassignTo?: string) => void;
+  categoryTransactionCount: (name: string) => number;
   setCurrency: (c: string) => void;
   setReportingCurrency: (currency: ReportingCurrency) => Promise<void>;
   clearAllData: () => Promise<void>;
@@ -820,6 +823,54 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   const addCustomCategory = (c: CustomCategory) => {
     persistCategories([...customCategories, c]);
   };
+
+  const updateCustomCategory = (updated: CustomCategory) => {
+    const before = customCategories.find((x) => x.id === updated.id);
+    if (!before) return;
+    persistCategories(
+      customCategories.map((x) => (x.id === updated.id ? updated : x)),
+    );
+    // If the title changed, propagate the rename to existing transactions and
+    // budgets so historical data stays linked.
+    if (before.title !== updated.title) {
+      persistTransactions(
+        transactions.map((t) =>
+          t.category === before.title ? { ...t, category: updated.title } : t,
+        ),
+      );
+      persistBudgets(
+        budgets.map((b) =>
+          b.category === before.title ? { ...b, category: updated.title } : b,
+        ),
+      );
+    }
+  };
+
+  const removeCustomCategory = (id: string, reassignTo?: string) => {
+    const target = customCategories.find((c) => c.id === id);
+    if (!target) return;
+    const linkedCount = transactions.filter((t) => t.category === target.title).length;
+    if (linkedCount > 0) {
+      if (!reassignTo || reassignTo === target.title) return;
+      persistTransactions(
+        transactions.map((t) =>
+          t.category === target.title ? { ...t, category: reassignTo } : t,
+        ),
+      );
+      persistBudgets(
+        budgets.map((b) =>
+          b.category === target.title ? { ...b, category: reassignTo } : b,
+        ),
+      );
+    }
+    persistCategories(customCategories.filter((c) => c.id !== id));
+  };
+
+  const categoryTransactionCount = useCallback(
+    (name: string) =>
+      transactions.filter((t) => t.category === name).length,
+    [transactions],
+  );
 
   const addBudget = (b: Omit<Budget, 'id' | 'createdAt'>) => {
     const next: Budget = {
@@ -1628,6 +1679,9 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
         requestBillNotificationPermission,
         syncBillNotifications,
         addCustomCategory,
+        updateCustomCategory,
+        removeCustomCategory,
+        categoryTransactionCount,
         setCurrency,
         setReportingCurrency,
         clearAllData,

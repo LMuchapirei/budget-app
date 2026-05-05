@@ -98,6 +98,8 @@ Last updated: 2026-05-03
 - `src/components/forms/GoalSheet.tsx`: add/edit/delete savings goals linked to active accounts with pause/resume and mark-complete actions.
 - `src/components/forms/TransferForm.tsx`: add/edit/delete account transfers, including cross-currency received amounts.
 - `src/components/forms/QuickActionsSheet.tsx`: command-palette overlay with live transaction search and quick-action chips, opened from a Search button on the Header.
+- `src/components/forms/AddCategorySheet.tsx`: add/edit/delete sheet for custom categories with color swatches, icon picker, and a delete-with-reassignment flow. Also exports `Field`, `getCategoryIcon`, and `CATEGORY_ICONS`.
+- `src/components/forms/CategoryManagerSheet.tsx`: list of custom + built-in categories with edit affordance and a "+ New" button per type. Opened from Settings > Customization.
 - `src/screens/OnboardingScreen.tsx`: 4-slide first-launch intro with privacy policy link and a data-handling summary opener.
 - `src/components/forms/DataHandlingSheet.tsx`: in-app data-handling summary that mirrors the Play Console data-safety form. Linked from onboarding and Settings.
 - `src/services/legal.ts`: editable constants for the privacy policy URL and support email surfaced in onboarding and Settings.
@@ -231,9 +233,12 @@ Last updated: 2026-05-03
   - Recurring setup includes an auto-post toggle and pause/resume action in edit mode.
   - Amount parsing is basic and does not handle commas, symbols, or locale-specific formats.
 - Categories:
-  - Built-in categories exist.
-  - Users can add custom categories.
-  - Custom categories cannot be edited, deleted, assigned icons, or given custom colors from the UI.
+  - Built-in categories live in `theme.ts` and stay read-only.
+  - Custom categories support add, rename, recolor, icon assignment, and delete from Settings > Customization > Manage categories.
+  - `CustomCategory` carries an optional `icon` field (Lucide name) rendered through `getCategoryIcon`.
+  - Renames propagate automatically to existing transactions and budgets so historical data stays linked.
+  - Delete blocks if the category has linked transactions until the user picks a reassignment target (built-in or another custom of the same type).
+  - The category manager exposes a per-type tab (Expense / Income), a + New button, and a read-only Built-in section that still shows live transaction counts.
 - Reports:
   - Scope chip at the top shows the active period and selected ledger.
   - "Spending by Category" respects both the active ledger (via `scopedTransactions`) and the active date filter.

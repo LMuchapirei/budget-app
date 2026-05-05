@@ -501,6 +501,7 @@ function OccurrenceCard({
                 <CheckCircle2 size={13} color={colors.paper} />
                 <Text style={styles.actionLabel}>Confirm</Text>
               </Pressable>
+              {/*
               <Pressable onPress={onProof} style={styles.secondaryAction}>
                 {evidence.length > 0 ? (
                   <Eye size={13} color={colors.moss} />
@@ -516,6 +517,7 @@ function OccurrenceCard({
                   {evidence.length > 0 ? 'View proof' : 'Add proof'}
                 </Text>
               </Pressable>
+              */}
               <Pressable onPress={onPostpone} style={styles.secondaryAction}>
                 <CalendarDays size={13} color={colors.stone600} />
                 <Text style={styles.secondaryActionLabel}>Postpone</Text>
@@ -526,6 +528,7 @@ function OccurrenceCard({
               </Pressable>
             </>
           ) : null}
+          {/*
           {!canAct && !canUndo ? (
             <Pressable onPress={onProof} style={styles.secondaryAction}>
               {evidence.length > 0 ? (
@@ -543,6 +546,7 @@ function OccurrenceCard({
               </Text>
             </Pressable>
           ) : null}
+          */}
         </View>
       </View>
     </View>

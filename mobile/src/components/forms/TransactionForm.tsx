@@ -47,7 +47,6 @@ export function TransactionForm({ onClose, transaction, initialType }: Transacti
     pauseSchedule,
     resumeSchedule,
     customCategories,
-    addCustomCategory,
     ledgers,
     activeLedgers,
     activeLedgerId,
@@ -541,17 +540,13 @@ export function TransactionForm({ onClose, transaction, initialType }: Transacti
         onClose={() => setActiveDatePicker(null)}
       />
 
-      <Modal visible={showAddCategory} transparent animationType="slide">
+      {showAddCategory ? (
         <AddCategorySheet
           type={type}
           onClose={() => setShowAddCategory(false)}
-          onSave={(c) => {
-            addCustomCategory(c);
-            setCategory(c.title);
-            setShowAddCategory(false);
-          }}
+          onSave={(c) => setCategory(c.title)}
         />
-      </Modal>
+      ) : null}
     </KeyboardAvoidingView>
   );
 }

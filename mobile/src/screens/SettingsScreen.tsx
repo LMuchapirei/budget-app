@@ -24,6 +24,7 @@ import {
   ShieldCheck,
   Sparkles,
   Sun,
+  Tag,
   Trash2,
   DollarSign,
   Lock,
@@ -36,6 +37,7 @@ import { useOnboarding } from '../context/OnboardingContext';
 import type { FontPairId } from '../theme';
 import { PRIVACY_POLICY_URL } from '../services/legal';
 import { DataHandlingSheet } from '../components/forms/DataHandlingSheet';
+import { CategoryManagerSheet } from '../components/forms/CategoryManagerSheet';
 
 export function SettingsScreen() {
   const {
@@ -67,6 +69,7 @@ export function SettingsScreen() {
   const [reminderBusy, setReminderBusy] = useState(false);
   const [reminderNote, setReminderNote] = useState('');
   const [showDataHandling, setShowDataHandling] = useState(false);
+  const [showCategoryManager, setShowCategoryManager] = useState(false);
 
   const openPrivacyPolicy = () => {
     Linking.openURL(PRIVACY_POLICY_URL).catch(() => undefined);
@@ -368,6 +371,26 @@ export function SettingsScreen() {
         </View>
       </View>
 
+      <Text style={styles.sectionHeader}>Customization</Text>
+      <View style={styles.card}>
+        <Pressable
+          onPress={() => setShowCategoryManager(true)}
+          style={styles.aboutRow}
+          accessibilityRole="button"
+        >
+          <View style={styles.rowLeft}>
+            <Tag size={20} color={colors.stone500} />
+            <View>
+              <Text style={styles.rowLabel}>Manage categories</Text>
+              <Text style={styles.aboutMeta}>
+                Add, rename, recolor, change icons, or delete custom categories
+              </Text>
+            </View>
+          </View>
+          <ChevronRight size={16} color={colors.stone500} />
+        </Pressable>
+      </View>
+
       <Text style={styles.sectionHeader}>About</Text>
       <View style={styles.card}>
         <Pressable
@@ -439,6 +462,11 @@ export function SettingsScreen() {
       <DataHandlingSheet
         visible={showDataHandling}
         onClose={() => setShowDataHandling(false)}
+      />
+
+      <CategoryManagerSheet
+        visible={showCategoryManager}
+        onClose={() => setShowCategoryManager(false)}
       />
     </View>
   );

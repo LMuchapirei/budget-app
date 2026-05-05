@@ -242,6 +242,7 @@ export interface CustomCategory {
   description: string;
   type: TxType;
   color: string;
+  icon?: string;
 }
 
 export type LedgerType =
