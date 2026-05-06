@@ -3,7 +3,6 @@ import {
   Alert,
   Keyboard,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -14,9 +13,16 @@ import {
   View,
 } from 'react-native';
 import { CalendarDays, CreditCard, Pause, Play, X, Repeat } from 'lucide-react-native';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme, type ColorPalette } from '../../context/ThemeContext';
 import { ALL_LEDGER_ID, useBudget } from '../../context/BudgetContext';
-import type { TxType, Category, Transaction, RecurringFrequency, RecurringSchedule } from '../../types';
+import type {
+  TxType,
+  Category,
+  Transaction,
+  RecurringFrequency,
+  RecurringSchedule,
+  LedgerAccount,
+} from '../../types';
 import { fonts, CATEGORIES, colorFor } from '../../theme';
 import { Field, AddCategorySheet } from './AddCategorySheet';
 import { DatePickerSheet } from './DatePickerSheet';
@@ -29,6 +35,13 @@ interface TransactionFormProps {
 
 type DatePickerTarget = 'transaction' | 'recurringStart' | 'recurringEnd';
 
+const TRANSACTION_TYPES: TxType[] = ['expense', 'income'];
+const RECURRING_FREQUENCIES: RecurringFrequency[] = ['daily', 'weekly', 'monthly', 'yearly'];
+
+function isoToday() {
+  return new Date().toISOString().split('T')[0];
+}
+
 function formatDateLabel(iso: string) {
   const [year, month, day] = iso.split('-').map(Number);
   if (!year || !month || !day) return iso;
@@ -37,6 +50,113 @@ function formatDateLabel(iso: string) {
     month: 'short',
     year: 'numeric',
   });
+}
+
+function defaultCategoryForType(type: TxType): Category {
+  return type === 'income' ? 'Salary' : 'Food';
+}
+
+function selectableLedgersForTransaction(
+  activeLedgers: LedgerAccount[],
+  ledgers: LedgerAccount[],
+  transaction?: Transaction | null,
+) {
+  if (!transaction?.ledgerId) return activeLedgers;
+  if (activeLedgers.some((ledger) => ledger.id === transaction.ledgerId)) {
+    return activeLedgers;
+  }
+  const archivedTarget = ledgers.find((ledger) => ledger.id === transaction.ledgerId);
+  return archivedTarget ? [...activeLedgers, archivedTarget] : activeLedgers;
+}
+
+function preferredLedgerForForm({
+  activeLedgerId,
+  selectableLedgers,
+  transaction,
+}: {
+  activeLedgerId: string;
+  selectableLedgers: LedgerAccount[];
+  transaction?: Transaction | null;
+}) {
+  return (
+    transaction?.ledgerId ??
+    (activeLedgerId === ALL_LEDGER_ID
+      ? selectableLedgers[0]?.id
+      : activeLedgerId) ??
+    selectableLedgers[0]?.id
+  );
+}
+
+function parsePositiveAmount(value: string) {
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount > 0 ? amount : null;
+}
+
+function parseIntegerAtLeast(value: string, min: number) {
+  return Math.max(min, Number(value) || min);
+}
+
+function buildRecurringSchedule({
+  autoPost,
+  date,
+  recurring,
+  recurringEndDate,
+  recurringFrequency,
+  recurringInterval,
+  recurringStartDate,
+  reminderDaysBefore,
+  transaction,
+}: {
+  autoPost: boolean;
+  date: string;
+  recurring: boolean;
+  recurringEndDate: string;
+  recurringFrequency: RecurringFrequency;
+  recurringInterval: string;
+  recurringStartDate: string;
+  reminderDaysBefore: string;
+  transaction?: Transaction | null;
+}): RecurringSchedule | undefined {
+  if (!recurring) return undefined;
+
+  return {
+    frequency: recurringFrequency,
+    interval: parseIntegerAtLeast(recurringInterval, 1),
+    startDate: recurringStartDate.trim() || date,
+    endDate: recurringEndDate.trim() || undefined,
+    reminderDaysBefore: parseIntegerAtLeast(reminderDaysBefore, 0),
+    postMode: autoPost ? 'auto' : 'confirm',
+    paused: transaction?.recurringSchedule?.paused ?? false,
+    pausedAt: transaction?.recurringSchedule?.pausedAt,
+  };
+}
+
+function datePickerConfig({
+  activeDatePicker,
+  date,
+  recurringEndDate,
+  recurringStartDate,
+}: {
+  activeDatePicker: DatePickerTarget | null;
+  date: string;
+  recurringEndDate: string;
+  recurringStartDate: string;
+}) {
+  return {
+    value:
+      activeDatePicker === 'recurringStart'
+        ? recurringStartDate
+        : activeDatePicker === 'recurringEnd'
+        ? recurringEndDate || recurringStartDate || date
+        : date,
+    title:
+      activeDatePicker === 'recurringStart'
+        ? 'First due date'
+        : activeDatePicker === 'recurringEnd'
+        ? 'Ends on'
+        : 'Entry date',
+    min: activeDatePicker === 'recurringEnd' ? recurringStartDate || date : undefined,
+  };
 }
 
 export function TransactionForm({ onClose, transaction, initialType }: TransactionFormProps) {
@@ -53,25 +173,25 @@ export function TransactionForm({ onClose, transaction, initialType }: Transacti
   } = useBudget();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const isEditing = Boolean(transaction);
-  const selectableLedgers = useMemo(() => {
-    if (!transaction?.ledgerId) return activeLedgers;
-    if (activeLedgers.some((l) => l.id === transaction.ledgerId)) return activeLedgers;
-    const archivedTarget = ledgers.find((l) => l.id === transaction.ledgerId);
-    return archivedTarget ? [...activeLedgers, archivedTarget] : activeLedgers;
-  }, [activeLedgers, ledgers, transaction?.ledgerId]);
-  const preferredLedgerId =
-    transaction?.ledgerId ??
-    (activeLedgerId === ALL_LEDGER_ID
-      ? selectableLedgers[0]?.id
-      : activeLedgerId) ??
-    selectableLedgers[0]?.id;
+  const todayIso = useMemo(isoToday, []);
+  const selectableLedgers = useMemo(
+    () => selectableLedgersForTransaction(activeLedgers, ledgers, transaction),
+    [activeLedgers, ledgers, transaction],
+  );
+  const preferredLedgerId = preferredLedgerForForm({
+    activeLedgerId,
+    selectableLedgers,
+    transaction,
+  });
 
   const [type, setType] = useState<TxType>(transaction?.type ?? initialType ?? 'expense');
   const [amount, setAmount] = useState(transaction ? String(transaction.amount) : '');
   const [description, setDescription] = useState(transaction?.description ?? '');
-  const [category, setCategory] = useState<Category>(transaction?.category ?? 'Food');
+  const [category, setCategory] = useState<Category>(
+    transaction?.category ?? defaultCategoryForType(initialType ?? 'expense'),
+  );
   const [ledgerId, setLedgerId] = useState(preferredLedgerId);
-  const [date, setDate] = useState(transaction?.date ?? new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(transaction?.date ?? todayIso);
   const [recurring, setRecurring] = useState(transaction?.recurring ?? false);
   const [recurringFrequency, setRecurringFrequency] = useState<RecurringFrequency>(
     transaction?.recurringSchedule?.frequency ?? 'monthly',
@@ -80,7 +200,7 @@ export function TransactionForm({ onClose, transaction, initialType }: Transacti
     String(transaction?.recurringSchedule?.interval ?? 1),
   );
   const [recurringStartDate, setRecurringStartDate] = useState(
-    transaction?.recurringSchedule?.startDate ?? transaction?.date ?? new Date().toISOString().split('T')[0],
+    transaction?.recurringSchedule?.startDate ?? transaction?.date ?? todayIso,
   );
   const [recurringEndDate, setRecurringEndDate] = useState(transaction?.recurringSchedule?.endDate ?? '');
   const [reminderDaysBefore, setReminderDaysBefore] = useState(
@@ -100,7 +220,7 @@ export function TransactionForm({ onClose, transaction, initialType }: Transacti
       skipInitialCategoryReset.current = false;
       return;
     }
-    setCategory(type === 'income' ? 'Salary' : 'Food');
+    setCategory(defaultCategoryForType(type));
     if (!transaction) {
       setAutoPost(type === 'income');
     }
@@ -114,28 +234,25 @@ export function TransactionForm({ onClose, transaction, initialType }: Transacti
 
   const handleSubmit = () => {
     Keyboard.dismiss();
-    const n = Number(amount);
+    const parsedAmount = parsePositiveAmount(amount);
     const targetLedgerId = ledgerId ?? selectableLedgers[0]?.id;
-    if (!amount || !description.trim() || !targetLedgerId || Number.isNaN(n) || n <= 0) return;
-    const interval = Math.max(1, Number(recurringInterval) || 1);
-    const reminder = Math.max(0, Number(reminderDaysBefore) || 0);
-    const recurringSchedule: RecurringSchedule | undefined = recurring
-      ? {
-          frequency: recurringFrequency,
-          interval,
-          startDate: recurringStartDate.trim() || date,
-          endDate: recurringEndDate.trim() || undefined,
-          reminderDaysBefore: reminder,
-          postMode: autoPost ? 'auto' : 'confirm',
-          paused: transaction?.recurringSchedule?.paused ?? false,
-          pausedAt: transaction?.recurringSchedule?.pausedAt,
-        }
-      : undefined;
+    if (!parsedAmount || !description.trim() || !targetLedgerId) return;
+    const recurringSchedule = buildRecurringSchedule({
+      autoPost,
+      date,
+      recurring,
+      recurringEndDate,
+      recurringFrequency,
+      recurringInterval,
+      recurringStartDate,
+      reminderDaysBefore,
+      transaction,
+    });
     if (transaction) {
       updateTransaction({
         ...transaction,
         type,
-        amount: n,
+        amount: parsedAmount,
         description: description.trim(),
         category,
         ledgerId: targetLedgerId,
@@ -146,7 +263,7 @@ export function TransactionForm({ onClose, transaction, initialType }: Transacti
     } else {
       addTransaction({
         type,
-        amount: n,
+        amount: parsedAmount,
         description: description.trim(),
         category,
         ledgerId: targetLedgerId,
@@ -184,23 +301,25 @@ export function TransactionForm({ onClose, transaction, initialType }: Transacti
     );
   };
 
-  const currentCategories = [
-    ...(type === 'income' ? CATEGORIES.income : CATEGORIES.expense),
-    ...customCategories.filter(c => c.type === type).map(c => c.title)
-  ];
-  const activeDateValue =
-    activeDatePicker === 'recurringStart'
-      ? recurringStartDate
-      : activeDatePicker === 'recurringEnd'
-      ? recurringEndDate || recurringStartDate || date
-      : date;
-  const activeDateTitle =
-    activeDatePicker === 'recurringStart'
-      ? 'First due date'
-      : activeDatePicker === 'recurringEnd'
-      ? 'Ends on'
-      : 'Entry date';
-  const activeDateMin = activeDatePicker === 'recurringEnd' ? recurringStartDate || date : undefined;
+  const currentCategories = useMemo(
+    () => [
+      ...(type === 'income' ? CATEGORIES.income : CATEGORIES.expense),
+      ...customCategories
+        .filter((customCategory) => customCategory.type === type)
+        .map((customCategory) => customCategory.title),
+    ],
+    [customCategories, type],
+  );
+  const activeDate = datePickerConfig({
+    activeDatePicker,
+    date,
+    recurringEndDate,
+    recurringStartDate,
+  });
+  const canSubmit =
+    Boolean(parsePositiveAmount(amount)) &&
+    Boolean(description.trim()) &&
+    Boolean(selectedLedger);
 
   const handleDateSelect = (iso: string) => {
     if (activeDatePicker === 'recurringStart') {
@@ -238,7 +357,7 @@ export function TransactionForm({ onClose, transaction, initialType }: Transacti
         </View>
 
         <View style={styles.typeToggle}>
-          {(['expense', 'income'] as TxType[]).map((t) => {
+          {TRANSACTION_TYPES.map((t) => {
             const active = type === t;
             const bg =
               active && t === 'income'
@@ -301,7 +420,7 @@ export function TransactionForm({ onClose, transaction, initialType }: Transacti
 
           <Field label="Category">
             <View style={styles.chipWrap}>
-              {currentCategories.map((c, i) => {
+              {currentCategories.map((c) => {
                 const active = category === c;
                 return (
                   <View key={c}>
@@ -330,14 +449,19 @@ export function TransactionForm({ onClose, transaction, initialType }: Transacti
               })}
               <View>
                 <Pressable
-                onPress={() => setShowAddCategory(true)}
-                style={[
-                  styles.chip,
-                  { backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.borderSoft, borderStyle: 'dashed' },
-                ]}
-              >
-                <Text style={[styles.chipLabel, { color: colors.stone500 }]}>+ New</Text>
-              </Pressable>
+                  onPress={() => setShowAddCategory(true)}
+                  style={[
+                    styles.chip,
+                    {
+                      backgroundColor: colors.paper,
+                      borderWidth: 1,
+                      borderColor: colors.borderSoft,
+                      borderStyle: 'dashed',
+                    },
+                  ]}
+                >
+                  <Text style={[styles.chipLabel, { color: colors.stone500 }]}>+ New</Text>
+                </Pressable>
               </View>
             </View>
           </Field>
@@ -398,7 +522,7 @@ export function TransactionForm({ onClose, transaction, initialType }: Transacti
             <View style={styles.schedulePanel}>
               <Field label="Frequency">
                 <View style={styles.chipWrap}>
-                  {(['daily', 'weekly', 'monthly', 'yearly'] as RecurringFrequency[]).map((frequency) => {
+                  {RECURRING_FREQUENCIES.map((frequency) => {
                     const active = recurringFrequency === frequency;
                     return (
                       <Pressable
@@ -517,10 +641,10 @@ export function TransactionForm({ onClose, transaction, initialType }: Transacti
 
         <Pressable
           onPress={handleSubmit}
-          disabled={!amount || !description.trim() || !selectedLedger}
+          disabled={!canSubmit}
           style={({ pressed }) => [
             styles.submit,
-            (!amount || !description.trim() || !selectedLedger) && styles.submitDisabled,
+            !canSubmit && styles.submitDisabled,
             pressed && { opacity: 0.85 },
           ]}
         >
@@ -530,9 +654,9 @@ export function TransactionForm({ onClose, transaction, initialType }: Transacti
 
       <DatePickerSheet
         visible={Boolean(activeDatePicker)}
-        title={activeDateTitle}
-        value={activeDateValue}
-        min={activeDateMin}
+        title={activeDate.title}
+        value={activeDate.value}
+        min={activeDate.min}
         allowClear={activeDatePicker === 'recurringEnd'}
         clearLabel="No end date"
         onSelect={handleDateSelect}
@@ -551,7 +675,7 @@ export function TransactionForm({ onClose, transaction, initialType }: Transacti
   );
 }
 
-const createStyles = (colors: any) =>
+const createStyles = (colors: ColorPalette) =>
   StyleSheet.create({
     modalRoot: { flex: 1, justifyContent: 'flex-end' },
     modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.overlay },

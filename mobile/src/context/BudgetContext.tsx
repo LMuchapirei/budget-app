@@ -256,6 +256,41 @@ function migrateLegacyBillRecords(
   });
 }
 
+async function persistState<T>(
+  next: T,
+  setState: React.Dispatch<React.SetStateAction<T>>,
+  save: (value: T) => Promise<void>,
+) {
+  setState(next);
+  try {
+    await save(next);
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function monthlyProjectionValue(transaction: Transaction) {
+  return estimateMonthlyImpact(transaction);
+}
+
+function recurringScheduleChanged(before: Transaction, after: Transaction) {
+  if (before.recurring !== after.recurring) return true;
+  if (before.date !== after.date) return true;
+  const a = before.recurringSchedule;
+  const b = after.recurringSchedule;
+  if (!a && !b) return false;
+  if (!a || !b) return true;
+  return (
+    a.frequency !== b.frequency ||
+    a.interval !== b.interval ||
+    a.startDate !== b.startDate ||
+    a.endDate !== b.endDate ||
+    a.reminderDaysBefore !== b.reminderDaysBefore ||
+    a.postMode !== b.postMode ||
+    a.paused !== b.paused
+  );
+}
+
 export function BudgetProvider({ children }: { children: React.ReactNode }) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [ledgers, setLedgers] = useState<LedgerAccount[]>([DEFAULT_LEDGER]);
@@ -372,77 +407,57 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     })();
   }, []);
 
-  const persistTransactions = useCallback(async (next: Transaction[]) => {
-    setTransactions(next);
-    try {
-      await storage.saveTransactions(next);
-    } catch (e) {
-      console.error(e);
-    }
-  }, []);
+  const persistTransactions = useCallback(
+    (next: Transaction[]) =>
+      persistState(next, setTransactions, (value) => storage.saveTransactions(value)),
+    [],
+  );
 
-  const persistLedgers = useCallback(async (next: LedgerAccount[]) => {
-    setLedgers(next);
-    try {
-      await storage.saveLedgers(next);
-    } catch (e) {
-      console.error(e);
-    }
-  }, []);
+  const persistLedgers = useCallback(
+    (next: LedgerAccount[]) =>
+      persistState(next, setLedgers, (value) => storage.saveLedgers(value)),
+    [],
+  );
 
-  const persistCategories = useCallback(async (next: CustomCategory[]) => {
-    setCustomCategories(next);
-    try {
-      await storage.saveCategories(next);
-    } catch (e) {
-      console.error(e);
-    }
-  }, []);
+  const persistCategories = useCallback(
+    (next: CustomCategory[]) =>
+      persistState(next, setCustomCategories, (value) => storage.saveCategories(value)),
+    [],
+  );
 
-  const persistEditHistory = useCallback(async (next: TransactionEditHistory[]) => {
-    setTransactionEditHistory(next);
-    try {
-      await storage.saveTransactionEditHistory(next);
-    } catch (e) {
-      console.error(e);
-    }
-  }, []);
+  const persistEditHistory = useCallback(
+    (next: TransactionEditHistory[]) =>
+      persistState(next, setTransactionEditHistory, (value) =>
+        storage.saveTransactionEditHistory(value),
+      ),
+    [],
+  );
 
-  const persistBudgets = useCallback(async (next: Budget[]) => {
-    setBudgets(next);
-    try {
-      await storage.saveBudgets(next);
-    } catch (e) {
-      console.error(e);
-    }
-  }, []);
+  const persistBudgets = useCallback(
+    (next: Budget[]) =>
+      persistState(next, setBudgets, (value) => storage.saveBudgets(value)),
+    [],
+  );
 
-  const persistGoals = useCallback(async (next: Goal[]) => {
-    setGoals(next);
-    try {
-      await storage.saveGoals(next);
-    } catch (e) {
-      console.error(e);
-    }
-  }, []);
+  const persistGoals = useCallback(
+    (next: Goal[]) =>
+      persistState(next, setGoals, (value) => storage.saveGoals(value)),
+    [],
+  );
 
-  const persistScheduledOccurrenceRecords = useCallback(async (next: ScheduledOccurrenceRecord[]) => {
-    setScheduledOccurrenceRecords(next);
-    try {
-      await storage.saveScheduledOccurrenceRecords(next);
-    } catch (e) {
-      console.error(e);
-    }
-  }, []);
+  const persistScheduledOccurrenceRecords = useCallback(
+    (next: ScheduledOccurrenceRecord[]) =>
+      persistState(next, setScheduledOccurrenceRecords, (value) =>
+        storage.saveScheduledOccurrenceRecords(value),
+      ),
+    [],
+  );
 
-  const persistPaymentEvidence = useCallback(async (next: PaymentEvidence[]) => {
-    setPaymentEvidence(next);
-    try {
-      await storage.savePaymentEvidence(next);
-    } catch (e) {
-      console.error(e);
-    }
-  }, []);
+  const persistPaymentEvidence = useCallback(
+    (next: PaymentEvidence[]) =>
+      persistState(next, setPaymentEvidence, (value) => storage.savePaymentEvidence(value)),
+    [],
+  );
 
   const ledgerCurrencyCodes = useMemo(
     () => Array.from(new Set(ledgers.map((ledger) => normalizeCurrencyCode(ledger.currencyCode)))),
@@ -497,10 +512,6 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
     };
   }, [fxRates, ledgerCurrencyCodes, ledgerCurrencyKey, loading, reportingCurrency.code]);
-
-  const monthlyProjectionValue = (t: Transaction) => {
-    return estimateMonthlyImpact(t);
-  };
 
   const setActiveLedger = (id: string) => {
     setActiveLedgerId(id);
@@ -637,24 +648,6 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
       scheduledOccurrenceRecords,
     ],
   );
-
-  const recurringScheduleChanged = (before: Transaction, after: Transaction) => {
-    if (before.recurring !== after.recurring) return true;
-    if (before.date !== after.date) return true;
-    const a = before.recurringSchedule;
-    const b = after.recurringSchedule;
-    if (!a && !b) return false;
-    if (!a || !b) return true;
-    return (
-      a.frequency !== b.frequency ||
-      a.interval !== b.interval ||
-      a.startDate !== b.startDate ||
-      a.endDate !== b.endDate ||
-      a.reminderDaysBefore !== b.reminderDaysBefore ||
-      a.postMode !== b.postMode ||
-      a.paused !== b.paused
-    );
-  };
 
   const updateTransaction = (updated: Transaction) => {
     const before = transactions.find((x) => x.id === updated.id);
@@ -1604,98 +1597,98 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     scopedTransactions,
   ]);
 
+  const contextValue: BudgetContextValue = {
+    transactions,
+    scopedTransactions,
+    ledgers,
+    activeLedgers,
+    activeLedgerId,
+    activeLedger,
+    transactionEditHistory,
+    customCategories,
+    stats,
+    loading,
+    currency,
+    reportingCurrency,
+    fxRates,
+    fxStatus,
+    fxError,
+    dateFilter,
+    setDateFilter,
+    setActiveLedger,
+    addLedger,
+    updateLedger,
+    archiveLedger,
+    unarchiveLedger,
+    deleteLedger,
+    setDefaultLedger,
+    ledgerTransactionCount,
+    ledgerOpeningBalance,
+    addTransaction,
+    updateTransaction,
+    removeTransaction,
+    addTransfer,
+    updateTransfer,
+    removeTransfer,
+    budgets,
+    budgetProgress,
+    addBudget,
+    updateBudget,
+    removeBudget,
+    goals,
+    goalProgress,
+    addGoal,
+    updateGoal,
+    removeGoal,
+    pauseGoal,
+    resumeGoal,
+    markGoalComplete,
+    ledgerBalance,
+    scheduledOccurrences,
+    scheduledOccurrenceRecords,
+    paymentEvidence,
+    evidenceForOccurrence,
+    addPaymentEvidence,
+    removePaymentEvidence,
+    scheduledNotificationStatus,
+    confirmOccurrence,
+    skipOccurrence,
+    postponeOccurrence,
+    clearOccurrenceStatus,
+    pauseSchedule,
+    resumeSchedule,
+    refreshScheduledNotificationPermission,
+    requestScheduledNotificationPermission,
+    syncScheduledNotifications,
+    billOccurrences,
+    billOccurrenceRecords,
+    billNotificationStatus,
+    markBillPaid,
+    markBillMissed,
+    clearBillStatus,
+    refreshBillNotificationPermission,
+    requestBillNotificationPermission,
+    syncBillNotifications,
+    addCustomCategory,
+    updateCustomCategory,
+    removeCustomCategory,
+    categoryTransactionCount,
+    setCurrency,
+    setReportingCurrency,
+    clearAllData,
+    formatMoney,
+    formatReportingMoney,
+    formatCompactMoney,
+    formatActiveMoney,
+    formatMoneyForLedger,
+    convertAmountToReporting,
+    convertTransactionAmountToReporting,
+    getTransactionAmountForActiveView,
+    maskAccountNumber: maskAccountNumberValue,
+  };
+
   return (
-    <BudgetContext.Provider
-      value={{
-        transactions,
-        scopedTransactions,
-        ledgers,
-        activeLedgers,
-        activeLedgerId,
-        activeLedger,
-        transactionEditHistory,
-        customCategories,
-        stats,
-        loading,
-        currency,
-        reportingCurrency,
-        fxRates,
-        fxStatus,
-        fxError,
-        dateFilter,
-        setDateFilter,
-        setActiveLedger,
-        addLedger,
-        updateLedger,
-        archiveLedger,
-        unarchiveLedger,
-        deleteLedger,
-        setDefaultLedger,
-        ledgerTransactionCount,
-        ledgerOpeningBalance,
-        addTransaction,
-        updateTransaction,
-        removeTransaction,
-        addTransfer,
-        updateTransfer,
-        removeTransfer,
-        budgets,
-        budgetProgress,
-        addBudget,
-        updateBudget,
-        removeBudget,
-        goals,
-        goalProgress,
-        addGoal,
-        updateGoal,
-        removeGoal,
-        pauseGoal,
-        resumeGoal,
-        markGoalComplete,
-        ledgerBalance,
-        scheduledOccurrences,
-        scheduledOccurrenceRecords,
-        paymentEvidence,
-        evidenceForOccurrence,
-        addPaymentEvidence,
-        removePaymentEvidence,
-        scheduledNotificationStatus,
-        confirmOccurrence,
-        skipOccurrence,
-        postponeOccurrence,
-        clearOccurrenceStatus,
-        pauseSchedule,
-        resumeSchedule,
-        refreshScheduledNotificationPermission,
-        requestScheduledNotificationPermission,
-        syncScheduledNotifications,
-        billOccurrences,
-        billOccurrenceRecords,
-        billNotificationStatus,
-        markBillPaid,
-        markBillMissed,
-        clearBillStatus,
-        refreshBillNotificationPermission,
-        requestBillNotificationPermission,
-        syncBillNotifications,
-        addCustomCategory,
-        updateCustomCategory,
-        removeCustomCategory,
-        categoryTransactionCount,
-        setCurrency,
-        setReportingCurrency,
-        clearAllData,
-        formatMoney,
-        formatReportingMoney,
-        formatCompactMoney,
-        formatActiveMoney,
-        formatMoneyForLedger,
-        convertAmountToReporting,
-        convertTransactionAmountToReporting,
-        getTransactionAmountForActiveView,
-        maskAccountNumber: maskAccountNumberValue,
-      }}
-    >
+    <BudgetContext.Provider value={contextValue}>
       {children}
     </BudgetContext.Provider>
   );
