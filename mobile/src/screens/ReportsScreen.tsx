@@ -3,7 +3,6 @@ import {
   Modal,
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   View,
   useWindowDimensions,
@@ -11,12 +10,13 @@ import {
 import { AlertTriangle, ChevronRight, Filter, X } from 'lucide-react-native';
 import { useTheme } from '../context/ThemeContext';
 import { ALL_LEDGER_ID, useBudget } from '../context/BudgetContext';
-import { colorFor, fonts } from '../theme';
+import { colorFor } from '../theme';
 import { PieChart } from '../charts/PieChart';
 import { BarChart } from '../charts/BarChart';
 import { Section, Empty, Legend } from '../components/ui/Layout';
 import { TxRow } from '../components/ui/TxRow';
 import type { CustomCategory, Transaction } from '../types';
+import { createReportsStyles } from './reports/reportsStyles';
 
 const MS_PER_DAY = 86400000;
 
@@ -62,7 +62,7 @@ export function ReportsScreen() {
   } = useBudget();
   const { width } = useWindowDimensions();
 
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const styles = useMemo(() => createReportsStyles(colors), [colors]);
   const [drilldown, setDrilldown] = useState<string | null>(null);
 
   // Spending-by-category respects the active ledger AND the active date filter.
@@ -322,7 +322,7 @@ function CategoryDrilldownSheet({
   onClose: () => void;
 }) {
   const { colors } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const styles = useMemo(() => createReportsStyles(colors), [colors]);
   const accent = categoryName ? colorFor(categoryName, customCategories) : colors.rust;
 
   return (
@@ -378,186 +378,3 @@ function CategoryDrilldownSheet({
     </Modal>
   );
 }
-
-const createStyles = (colors: any) =>
-  StyleSheet.create({
-    scopeBar: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-      alignSelf: 'flex-start',
-      paddingHorizontal: 12,
-      paddingVertical: 7,
-      borderRadius: 999,
-      backgroundColor: colors.chip,
-      maxWidth: '100%',
-    },
-    scopeText: {
-      fontFamily: fonts.bodyMedium,
-      fontSize: 11,
-      color: colors.stone600,
-      letterSpacing: 0.4,
-      flexShrink: 1,
-    },
-    card: {
-      backgroundColor: colors.cream,
-      borderRadius: 20,
-      borderWidth: 1,
-      borderColor: colors.borderSoft,
-      padding: 16,
-    },
-    legendWrapper: {
-      flexDirection: 'row',
-      gap: 18,
-      justifyContent: 'center',
-      marginTop: 12,
-    },
-    legendRow: {
-      flexDirection: 'row',
-      alignItems: 'baseline',
-      justifyContent: 'space-between',
-    },
-    legendLabelGroup: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-    },
-    legendDot: { width: 8, height: 8, borderRadius: 4 },
-    legendName: {
-      fontFamily: fonts.display,
-      fontSize: 13,
-      color: colors.ink,
-    },
-    legendValueGroup: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-    },
-    legendValue: {
-      fontFamily: fonts.displayLight,
-      fontSize: 13,
-      color: colors.ink,
-    },
-    legendPct: { color: colors.stone400, fontSize: 11 },
-    progressTrack: {
-      height: 4,
-      borderRadius: 2,
-      backgroundColor: colors.chip,
-      overflow: 'hidden',
-    },
-    progressFill: { height: 4, borderRadius: 2 },
-    alertCard: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 12,
-      backgroundColor: colors.cream,
-      borderRadius: 14,
-      borderWidth: 1,
-      borderColor: colors.borderSoft,
-      padding: 14,
-    },
-    alertIcon: {
-      width: 34,
-      height: 34,
-      borderRadius: 17,
-      backgroundColor: colors.paper,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    alertTitle: {
-      fontFamily: fonts.display,
-      fontSize: 15,
-      color: colors.ink,
-    },
-    alertMeta: {
-      fontFamily: fonts.body,
-      fontSize: 11,
-      color: colors.stone500,
-      marginTop: 2,
-      marginBottom: 7,
-    },
-    alertAmountGroup: {
-      alignItems: 'flex-end',
-      gap: 2,
-    },
-    alertAmount: {
-      fontFamily: fonts.displayLight,
-      fontSize: 17,
-      color: colors.clay,
-    },
-    alertAmountLabel: {
-      fontFamily: fonts.bodyMedium,
-      fontSize: 10,
-      letterSpacing: 0.8,
-      textTransform: 'uppercase',
-      color: colors.stone500,
-    },
-    modalRoot: { flex: 1, justifyContent: 'flex-end' },
-    modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.overlay },
-    sheet: {
-      backgroundColor: colors.cream,
-      borderTopLeftRadius: 28,
-      borderTopRightRadius: 28,
-      padding: 24,
-      paddingBottom: 32,
-      borderWidth: 1,
-      borderColor: colors.borderSoft,
-      gap: 16,
-      maxHeight: '92%',
-    },
-    sheetHandle: {
-      alignSelf: 'center',
-      width: 44,
-      height: 4,
-      borderRadius: 2,
-      backgroundColor: colors.chip,
-      marginTop: -8,
-    },
-    sheetHead: {
-      flexDirection: 'row',
-      alignItems: 'flex-start',
-      justifyContent: 'space-between',
-      gap: 10,
-    },
-    sheetTitleGroup: {
-      flex: 1,
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 12,
-    },
-    sheetTitle: {
-      fontFamily: fonts.displayLight,
-      fontSize: 22,
-      color: colors.ink,
-    },
-    sheetSubtitle: {
-      fontFamily: fonts.bodyMedium,
-      fontSize: 12,
-      color: colors.stone600,
-      marginTop: 2,
-    },
-    sheetMeta: {
-      fontFamily: fonts.body,
-      fontSize: 11,
-      color: colors.stone500,
-      marginTop: 2,
-    },
-    drillDot: {
-      width: 38,
-      height: 38,
-      borderRadius: 19,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    drillDotInner: { width: 10, height: 10, borderRadius: 5 },
-    drillScroll: {
-      maxHeight: 540,
-    },
-    drillList: {
-      backgroundColor: colors.cream,
-      borderRadius: 14,
-      borderWidth: 1,
-      borderColor: colors.borderSoft,
-      paddingHorizontal: 12,
-    },
-  });

@@ -54,6 +54,14 @@
           "photosPermission": "Allow The Budget to attach selected receipt or payment proof photos to bills.",
           "cameraPermission": "Allow The Budget to take a receipt or payment proof photo."
         }
+      ],
+      [
+        "@sentry/react-native/expo",
+        {
+          "url": "https://sentry.io/",
+          "project": "react-native",
+          "organization": "linval"
+        }
       ]
     ],
     "extra": {

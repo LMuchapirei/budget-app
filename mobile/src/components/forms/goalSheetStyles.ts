@@ -1,0 +1,158 @@
+import { StyleSheet } from 'react-native';
+import type { ColorPalette } from '../../context/ThemeContext';
+import { fonts } from '../../theme';
+
+export const createGoalSheetStyles = (colors: ColorPalette) =>
+  StyleSheet.create({
+    modalRoot: { flex: 1, justifyContent: 'flex-end' },
+    modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.overlay },
+    sheet: {
+      backgroundColor: colors.cream,
+      borderTopLeftRadius: 28,
+      borderTopRightRadius: 28,
+      padding: 24,
+      paddingBottom: 32,
+      borderWidth: 1,
+      borderColor: colors.borderSoft,
+      gap: 18,
+      maxHeight: '92%',
+    },
+    sheetHandle: {
+      alignSelf: 'center',
+      width: 44,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: colors.chip,
+      marginTop: -8,
+    },
+    sheetHead: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    sheetTitle: {
+      fontFamily: fonts.displayLight,
+      fontSize: 22,
+      color: colors.ink,
+    },
+    scroll: {
+      maxHeight: 520,
+    },
+    fieldLabel: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: 10,
+      letterSpacing: 1.5,
+      textTransform: 'uppercase',
+      color: colors.stone500,
+    },
+    input: {
+      fontFamily: fonts.body,
+      fontSize: 15,
+      paddingVertical: 8,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.borderSoft,
+      color: colors.ink,
+    },
+    dateButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.borderSoft,
+    },
+    dateButtonText: {
+      fontFamily: fonts.body,
+      fontSize: 15,
+      color: colors.ink,
+    },
+    dateButtonPlaceholder: {
+      color: colors.stone400,
+    },
+    amountRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
+    amountSign: { fontFamily: fonts.displayLight, fontSize: 28, color: colors.stone400 },
+    amountInput: {
+      flex: 1,
+      fontFamily: fonts.displayLight,
+      fontSize: 28,
+      color: colors.ink,
+      paddingVertical: 4,
+    },
+    helperCopy: {
+      fontFamily: fonts.body,
+      fontSize: 12,
+      color: colors.stone500,
+      marginTop: 2,
+      lineHeight: 17,
+    },
+    warningText: {
+      fontFamily: fonts.body,
+      fontSize: 12,
+      color: colors.clay,
+      marginTop: 2,
+      lineHeight: 17,
+    },
+    chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    chip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 7,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: 999,
+      backgroundColor: colors.chip,
+    },
+    chipDot: {
+      width: 7,
+      height: 7,
+      borderRadius: 4,
+    },
+    chipLabel: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: 12,
+      color: colors.inkSoft,
+    },
+    row: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+    },
+    manageSection: {
+      gap: 8,
+      paddingTop: 8,
+    },
+    manageRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+      borderRadius: 14,
+      backgroundColor: colors.paper,
+      borderWidth: 1,
+      borderColor: colors.borderSoft,
+    },
+    manageRowLabel: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: 13,
+      color: colors.ink,
+    },
+    completedNote: {
+      fontFamily: fonts.body,
+      fontSize: 12,
+      color: colors.stone500,
+      paddingHorizontal: 2,
+    },
+    submit: {
+      backgroundColor: colors.ink,
+      paddingVertical: 14,
+      borderRadius: 999,
+      alignItems: 'center',
+    },
+    submitLabel: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: 14,
+      color: colors.paper,
+      letterSpacing: 0.5,
+    },
+  });

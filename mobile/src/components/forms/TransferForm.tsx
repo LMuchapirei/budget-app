@@ -7,7 +7,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   TextInput,
   View,
@@ -16,11 +15,11 @@ import { ArrowLeftRight, CalendarDays, Trash2, X } from 'lucide-react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { useBudget } from '../../context/BudgetContext';
 import type { LedgerAccount } from '../../types';
-import { fonts } from '../../theme';
 import { convertExchangeAmount } from '../../services/exchangeRates';
 import { formatCurrencyAmount } from '../../utils/currency';
-import { Field } from './AddCategorySheet';
+import { Field } from './shared/Field';
 import { DatePickerSheet } from './DatePickerSheet';
+import { createTransferFormStyles } from './transferFormStyles';
 
 interface TransferFormProps {
   visible: boolean;
@@ -41,7 +40,7 @@ function formatDateLabel(iso: string) {
 
 export function TransferForm({ visible, mode, pairId, onClose }: TransferFormProps) {
   const { colors } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const styles = useMemo(() => createTransferFormStyles(colors), [colors]);
   const {
     addTransfer,
     updateTransfer,
@@ -432,187 +431,3 @@ export function TransferForm({ visible, mode, pairId, onClose }: TransferFormPro
     </Modal>
   );
 }
-
-const createStyles = (colors: any) =>
-  StyleSheet.create({
-    modalRoot: { flex: 1, justifyContent: 'flex-end' },
-    modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.overlay },
-    sheet: {
-      backgroundColor: colors.cream,
-      borderTopLeftRadius: 28,
-      borderTopRightRadius: 28,
-      padding: 24,
-      paddingBottom: 32,
-      borderWidth: 1,
-      borderColor: colors.borderSoft,
-      gap: 18,
-      maxHeight: '92%',
-    },
-    sheetHandle: {
-      alignSelf: 'center',
-      width: 44,
-      height: 4,
-      borderRadius: 2,
-      backgroundColor: colors.chip,
-      marginTop: -8,
-    },
-    sheetHead: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-    },
-    sheetTitle: {
-      fontFamily: fonts.displayLight,
-      fontSize: 22,
-      color: colors.ink,
-    },
-    scroll: {
-      maxHeight: 480,
-    },
-    fieldLabel: {
-      fontFamily: fonts.bodyMedium,
-      fontSize: 10,
-      letterSpacing: 1.5,
-      textTransform: 'uppercase',
-      color: colors.stone500,
-    },
-    helperCopy: {
-      fontFamily: fonts.body,
-      fontSize: 11,
-      color: colors.stone500,
-      lineHeight: 15,
-    },
-    amountBlock: {
-      gap: 6,
-    },
-    amountRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
-    amountSign: { fontFamily: fonts.displayLight, fontSize: 28, color: colors.stone400 },
-    amountInput: {
-      flex: 1,
-      fontFamily: fonts.displayLight,
-      fontSize: 28,
-      color: colors.ink,
-      paddingVertical: 4,
-    },
-    amountMeta: {
-      fontFamily: fonts.body,
-      fontSize: 11,
-      color: colors.stone500,
-    },
-    input: {
-      fontFamily: fonts.body,
-      fontSize: 15,
-      paddingVertical: 8,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.borderSoft,
-      color: colors.ink,
-    },
-    chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-    chip: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 7,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
-      borderRadius: 999,
-      backgroundColor: colors.chip,
-    },
-    chipDot: {
-      width: 7,
-      height: 7,
-      borderRadius: 4,
-    },
-    chipLabel: {
-      fontFamily: fonts.bodyMedium,
-      fontSize: 12,
-    },
-    swapButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
-      borderRadius: 999,
-      backgroundColor: colors.paper,
-      borderWidth: 1,
-      borderColor: colors.borderSoft,
-      borderStyle: 'dashed',
-      alignSelf: 'flex-start',
-    },
-    swapLabel: {
-      fontFamily: fonts.bodyMedium,
-      fontSize: 12,
-      color: colors.rust,
-    },
-    overrideBlock: {
-      gap: 8,
-    },
-    overrideHead: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: 8,
-    },
-    overrideToggle: {
-      paddingHorizontal: 10,
-      paddingVertical: 4,
-      borderRadius: 999,
-      backgroundColor: colors.chip,
-    },
-    overrideToggleLabel: {
-      fontFamily: fonts.bodyMedium,
-      fontSize: 11,
-      color: colors.stone600,
-    },
-    warningText: {
-      fontFamily: fonts.body,
-      fontSize: 11,
-      color: colors.clay,
-      fontStyle: 'italic',
-    },
-    dateButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-      paddingVertical: 10,
-      paddingHorizontal: 12,
-      borderRadius: 12,
-      backgroundColor: colors.paper,
-      borderWidth: 1,
-      borderColor: colors.borderSoft,
-      alignSelf: 'flex-start',
-    },
-    dateLabel: {
-      fontFamily: fonts.bodyMedium,
-      fontSize: 13,
-      color: colors.ink,
-    },
-    deleteRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 10,
-      paddingVertical: 12,
-      paddingHorizontal: 14,
-      borderRadius: 14,
-      backgroundColor: colors.paper,
-      borderWidth: 1,
-      borderColor: colors.borderSoft,
-    },
-    deleteLabel: {
-      fontFamily: fonts.bodyMedium,
-      fontSize: 13,
-      color: colors.clay,
-    },
-    submit: {
-      backgroundColor: colors.ink,
-      paddingVertical: 14,
-      borderRadius: 999,
-      alignItems: 'center',
-    },
-    submitLabel: {
-      fontFamily: fonts.bodyMedium,
-      fontSize: 14,
-      color: colors.paper,
-      letterSpacing: 0.5,
-    },
-  });

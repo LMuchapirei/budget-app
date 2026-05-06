@@ -19,7 +19,6 @@ import { ALL_LEDGER_ID, useBudget } from '../context/BudgetContext';
 import { AreaChart } from '../charts/AreaChart';
 import { MonthlySummary } from '../components/ui/MonthlySummary';
 import { Section, Empty, Legend } from '../components/ui/Layout';
-import { TxRow } from '../components/ui/TxRow';
 import { LedgerSheet } from '../components/forms/LedgerSheet';
 import { BudgetSheet } from '../components/forms/BudgetSheet';
 import { GoalSheet } from '../components/forms/GoalSheet';
@@ -32,13 +31,13 @@ import {
   GoalProgressCard,
   LedgerChip,
 } from './dashboard/DashboardWidgets';
+import { RecentEntriesSection } from './dashboard/RecentEntriesSection';
 import {
   buildCumulativeChartDays,
   buildLedgerStats,
   buildNetSparkline,
   buildPreviousPeriodStats,
   CHART_CARD_PADDING,
-  ENTRY_TABS,
   filterRecentEntries,
   filterTransactionsByDateRange,
   getAllAccountsMeta,
@@ -446,57 +445,13 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
         ) : null}
       </Section>
 
-      <Section title="Recent Entries" subtitle={`${filteredEntries.length} shown`}>
-        <View style={styles.entryTabs}>
-          {ENTRY_TABS.map(({ id, label }) => {
-            const active = entryTab === id;
-            const activeBg =
-              id === 'expense'
-                ? colors.clay
-                : id === 'income'
-                ? colors.moss
-                : id === 'transfer'
-                ? colors.rust
-                : colors.ink;
-            return (
-              <Pressable
-                key={id}
-                onPress={() => setEntryTab(id)}
-                style={[
-                  styles.entryTab,
-                  active && { backgroundColor: activeBg },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.entryTabLabel,
-                    { color: active ? colors.paper : colors.inkSoft },
-                  ]}
-                >
-                  {label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        {filteredEntries.length === 0 ? (
-          <Empty msg="No entries for this period." />
-        ) : (
-          <View style={styles.list}>
-            {filteredEntries.map((transaction, index) => (
-              <View key={transaction.id}>
-                <TxRow
-                  t={transaction}
-                  isLast={index === filteredEntries.length - 1}
-                  customCategories={customCategories}
-                  onEdit={onEditTransaction}
-                />
-              </View>
-            ))}
-          </View>
-        )}
-      </Section>
+      <RecentEntriesSection
+        entries={filteredEntries}
+        entryTab={entryTab}
+        customCategories={customCategories}
+        onEntryTabChange={setEntryTab}
+        onEditTransaction={onEditTransaction}
+      />
 
       <LedgerSheet
         visible={ledgerSheet !== null}

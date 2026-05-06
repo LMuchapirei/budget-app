@@ -6,7 +6,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   TextInput,
   View,
@@ -50,32 +49,9 @@ import type { LucideIcon } from 'lucide-react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { useBudget } from '../../context/BudgetContext';
 import type { CustomCategory, TxType } from '../../types';
-import { CATEGORIES, fonts } from '../../theme';
-
-interface FieldProps {
-  label: string;
-  children: React.ReactNode;
-}
-
-export function Field({ label, children }: FieldProps) {
-  const { colors } = useTheme();
-  return (
-    <View style={{ gap: 6 }}>
-      <Text
-        style={{
-          fontFamily: fonts.bodyMedium,
-          fontSize: 10,
-          letterSpacing: 1.6,
-          textTransform: 'uppercase',
-          color: colors.stone500,
-        }}
-      >
-        {label}
-      </Text>
-      {children}
-    </View>
-  );
-}
+import { CATEGORIES } from '../../theme';
+import { Field } from './shared/Field';
+import { createAddCategoryStyles } from './addCategoryStyles';
 
 const COLOR_SWATCHES = [
   '#8B5A3C',
@@ -146,7 +122,7 @@ export function AddCategorySheet({
   category,
 }: AddCategorySheetProps) {
   const { colors } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const styles = useMemo(() => createAddCategoryStyles(colors), [colors]);
   const {
     addCustomCategory,
     updateCustomCategory,
@@ -508,222 +484,3 @@ export function AddCategorySheet({
     </Modal>
   );
 }
-
-const createStyles = (colors: any) =>
-  StyleSheet.create({
-    modalRoot: { flex: 1, justifyContent: 'flex-end' },
-    modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.overlay },
-    sheet: {
-      backgroundColor: colors.cream,
-      borderTopLeftRadius: 28,
-      borderTopRightRadius: 28,
-      padding: 24,
-      paddingBottom: 32,
-      borderWidth: 1,
-      borderColor: colors.borderSoft,
-      gap: 16,
-      maxHeight: '92%',
-    },
-    sheetHandle: {
-      alignSelf: 'center',
-      width: 44,
-      height: 4,
-      borderRadius: 2,
-      backgroundColor: colors.chip,
-      marginTop: -8,
-    },
-    sheetHead: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-    },
-    sheetTitle: {
-      fontFamily: fonts.displayLight,
-      fontSize: 22,
-      color: colors.ink,
-    },
-    previewRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 12,
-      paddingVertical: 12,
-      paddingHorizontal: 14,
-      borderRadius: 14,
-      backgroundColor: colors.paper,
-      borderWidth: 1,
-      borderColor: colors.borderSoft,
-    },
-    previewSwatch: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    previewName: {
-      fontFamily: fonts.displayMedium,
-      fontSize: 15,
-      color: colors.ink,
-    },
-    previewMeta: {
-      fontFamily: fonts.body,
-      fontSize: 11,
-      color: colors.stone500,
-      marginTop: 2,
-    },
-    scroll: {
-      maxHeight: 480,
-    },
-    typeToggle: {
-      flexDirection: 'row',
-      gap: 6,
-      padding: 4,
-      backgroundColor: colors.chip,
-      borderRadius: 999,
-    },
-    typeButton: {
-      flex: 1,
-      paddingVertical: 10,
-      borderRadius: 999,
-      alignItems: 'center',
-    },
-    typeLabel: {
-      fontFamily: fonts.bodyMedium,
-      fontSize: 13,
-    },
-    input: {
-      fontFamily: fonts.body,
-      fontSize: 15,
-      paddingVertical: 8,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.borderSoft,
-      color: colors.ink,
-    },
-    swatchGrid: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 10,
-    },
-    swatch: {
-      width: 28,
-      height: 28,
-      borderRadius: 14,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    swatchActive: {
-      borderWidth: 2,
-      borderColor: colors.ink,
-    },
-    iconGrid: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 8,
-    },
-    iconBtn: {
-      width: 38,
-      height: 38,
-      borderRadius: 12,
-      backgroundColor: colors.chip,
-      alignItems: 'center',
-      justifyContent: 'center',
-      borderWidth: 1,
-      borderColor: 'transparent',
-    },
-    iconBtnActive: {
-      backgroundColor: colors.paper,
-      borderColor: colors.borderSoft,
-    },
-    iconNoneLabel: {
-      fontFamily: fonts.bodyMedium,
-      fontSize: 10,
-      color: colors.stone600,
-    },
-    chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-    chip: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 7,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
-      borderRadius: 999,
-      backgroundColor: colors.chip,
-    },
-    chipLabel: {
-      fontFamily: fonts.bodyMedium,
-      fontSize: 12,
-      color: colors.inkSoft,
-    },
-    deleteRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 10,
-      paddingVertical: 12,
-      paddingHorizontal: 14,
-      borderRadius: 14,
-      backgroundColor: colors.paper,
-      borderWidth: 1,
-      borderColor: colors.borderSoft,
-    },
-    deleteLabel: {
-      fontFamily: fonts.bodyMedium,
-      fontSize: 13,
-      color: colors.clay,
-      flex: 1,
-    },
-    deleteMeta: {
-      fontFamily: fonts.body,
-      fontSize: 11,
-      color: colors.stone500,
-    },
-    submit: {
-      backgroundColor: colors.ink,
-      paddingVertical: 14,
-      borderRadius: 999,
-      alignItems: 'center',
-    },
-    submitLabel: {
-      fontFamily: fonts.bodyMedium,
-      fontSize: 14,
-      color: colors.paper,
-      letterSpacing: 0.5,
-    },
-    dangerPanel: {
-      gap: 14,
-      padding: 16,
-      borderRadius: 16,
-      backgroundColor: colors.paper,
-      borderWidth: 1,
-      borderColor: colors.borderSoft,
-    },
-    dangerTitle: {
-      fontFamily: fonts.displayLight,
-      fontSize: 18,
-      color: colors.ink,
-    },
-    dangerCopy: {
-      fontFamily: fonts.body,
-      fontSize: 13,
-      color: colors.stone600,
-    },
-    dangerActions: {
-      flexDirection: 'row',
-      gap: 10,
-    },
-    actionBtn: {
-      flex: 1,
-      paddingVertical: 12,
-      borderRadius: 999,
-      alignItems: 'center',
-    },
-    actionBtnGhost: {
-      backgroundColor: colors.chip,
-    },
-    actionBtnDanger: {
-      backgroundColor: colors.clay,
-    },
-    actionBtnLabel: {
-      fontFamily: fonts.bodyMedium,
-      fontSize: 13,
-    },
-  });

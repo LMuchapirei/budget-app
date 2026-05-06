@@ -9,7 +9,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   TextInput,
   View,
@@ -27,9 +26,9 @@ import {
 import { useTheme } from '../../context/ThemeContext';
 import type { PaymentEvidence, PaymentEvidenceDraft, PaymentEvidenceType, ScheduledOccurrence } from '../../types';
 import { persistEvidenceImage } from '../../services/paymentEvidenceFiles';
-import { fonts } from '../../theme';
-import { Field } from './AddCategorySheet';
+import { Field } from './shared/Field';
 import { PaymentEvidencePreviewSheet } from './PaymentEvidencePreviewSheet';
+import { createPaymentEvidenceSheetStyles } from './paymentEvidenceSheetStyles';
 import {
   analyzePaymentEvidenceText,
   evidenceConfidenceLabel,
@@ -63,7 +62,7 @@ export function PaymentEvidenceSheet({
   onClose,
 }: PaymentEvidenceSheetProps) {
   const { colors } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const styles = useMemo(() => createPaymentEvidenceSheetStyles(colors), [colors]);
   const [textType, setTextType] = useState<PaymentEvidenceType>('sms_text');
   const [rawText, setRawText] = useState('');
   const [reference, setReference] = useState('');
@@ -376,230 +375,3 @@ export function PaymentEvidenceSheet({
     </Modal>
   );
 }
-
-const createStyles = (colors: any) =>
-  StyleSheet.create({
-    modalRoot: { flex: 1, justifyContent: 'flex-end' },
-    modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.overlay },
-    sheet: {
-      backgroundColor: colors.cream,
-      borderTopLeftRadius: 28,
-      borderTopRightRadius: 28,
-      padding: 24,
-      paddingBottom: 32,
-      borderWidth: 1,
-      borderColor: colors.borderSoft,
-      gap: 18,
-      maxHeight: '92%',
-    },
-    sheetHandle: {
-      alignSelf: 'center',
-      width: 44,
-      height: 4,
-      borderRadius: 2,
-      backgroundColor: colors.chip,
-      marginTop: -8,
-    },
-    sheetHead: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: 12,
-    },
-    sheetTitle: {
-      fontFamily: fonts.displayLight,
-      fontSize: 24,
-      color: colors.ink,
-    },
-    sheetSubtitle: {
-      fontFamily: fonts.body,
-      fontSize: 12,
-      color: colors.stone500,
-      marginTop: 3,
-    },
-    quickGrid: {
-      flexDirection: 'row',
-      gap: 10,
-    },
-    quickButton: {
-      flex: 1,
-      minHeight: 76,
-      borderRadius: 16,
-      borderWidth: 1,
-      borderColor: colors.borderSoft,
-      backgroundColor: colors.paper,
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: 7,
-    },
-    quickLabel: {
-      fontFamily: fonts.bodyMedium,
-      fontSize: 12,
-      color: colors.ink,
-    },
-    segmentRow: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 8,
-      marginBottom: 10,
-    },
-    segment: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-      paddingHorizontal: 11,
-      paddingVertical: 7,
-      borderRadius: 999,
-      backgroundColor: colors.chip,
-    },
-    segmentLabel: {
-      fontFamily: fonts.bodyMedium,
-      fontSize: 11,
-      color: colors.stone600,
-    },
-    textArea: {
-      minHeight: 94,
-      textAlignVertical: 'top',
-      fontFamily: fonts.body,
-      fontSize: 14,
-      color: colors.ink,
-      backgroundColor: colors.paper,
-      borderWidth: 1,
-      borderColor: colors.borderSoft,
-      borderRadius: 14,
-      paddingHorizontal: 12,
-      paddingVertical: 10,
-    },
-    inlineFields: {
-      flexDirection: 'row',
-      gap: 10,
-      marginTop: 10,
-    },
-    detectedPanel: {
-      marginTop: 10,
-      borderRadius: 14,
-      borderWidth: 1,
-      borderColor: colors.borderSoft,
-      backgroundColor: colors.paper,
-      padding: 10,
-      gap: 8,
-    },
-    detectedTitle: {
-      fontFamily: fonts.bodyMedium,
-      fontSize: 11,
-      color: colors.stone500,
-      textTransform: 'uppercase',
-      letterSpacing: 0.7,
-    },
-    detectedChips: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 7,
-    },
-    detectedChip: {
-      fontFamily: fonts.bodyMedium,
-      fontSize: 11,
-      color: colors.rust,
-      backgroundColor: colors.chip,
-      borderRadius: 999,
-      paddingHorizontal: 9,
-      paddingVertical: 4,
-    },
-    input: {
-      flex: 1,
-      minWidth: 0,
-      fontFamily: fonts.body,
-      fontSize: 14,
-      paddingVertical: 8,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.borderSoft,
-      color: colors.ink,
-    },
-    addButton: {
-      backgroundColor: colors.ink,
-      paddingVertical: 13,
-      borderRadius: 999,
-      alignItems: 'center',
-    },
-    addButtonLabel: {
-      fontFamily: fonts.bodyMedium,
-      fontSize: 13,
-      color: colors.paper,
-    },
-    listHead: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-    },
-    listTitle: {
-      fontFamily: fonts.displayMedium,
-      fontSize: 17,
-      color: colors.ink,
-    },
-    listCount: {
-      fontFamily: fonts.bodyMedium,
-      fontSize: 12,
-      color: colors.stone500,
-    },
-    emptyState: {
-      padding: 14,
-      borderRadius: 16,
-      borderWidth: 1,
-      borderColor: colors.borderSoft,
-      backgroundColor: colors.paper,
-    },
-    emptyTitle: {
-      fontFamily: fonts.displayMedium,
-      fontSize: 15,
-      color: colors.ink,
-    },
-    emptyText: {
-      fontFamily: fonts.body,
-      fontSize: 12,
-      color: colors.stone500,
-      marginTop: 3,
-      lineHeight: 17,
-    },
-    evidenceRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 12,
-      padding: 12,
-      borderRadius: 16,
-      borderWidth: 1,
-      borderColor: colors.borderSoft,
-      backgroundColor: colors.paper,
-    },
-    thumbnail: {
-      width: 48,
-      height: 48,
-      borderRadius: 12,
-      backgroundColor: colors.chip,
-    },
-    evidenceIcon: {
-      width: 48,
-      height: 48,
-      borderRadius: 12,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: colors.chip,
-    },
-    evidenceTitle: {
-      fontFamily: fonts.bodyMedium,
-      fontSize: 13,
-      color: colors.ink,
-    },
-    evidenceMeta: {
-      fontFamily: fonts.body,
-      fontSize: 12,
-      color: colors.stone500,
-      marginTop: 2,
-      lineHeight: 16,
-    },
-    evidenceDate: {
-      fontFamily: fonts.body,
-      fontSize: 10,
-      color: colors.stone400,
-      marginTop: 3,
-    },
-  });
