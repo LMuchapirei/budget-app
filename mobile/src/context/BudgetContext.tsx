@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useRef, useState, useMemo, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useMemo, useCallback } from 'react';
 import type {
   Transaction,
   CustomCategory,
@@ -11,18 +11,13 @@ import type {
   FxRateStatus,
   Budget,
   BudgetProgress,
-  BudgetStatus,
   Goal,
   GoalProgress,
-  GoalPacing,
   ConfirmOccurrenceOverride,
   ScheduledOccurrence,
-  ScheduledOccurrenceDisplayStatus,
-  BillOccurrenceRecord,
   BillNotificationStatus,
   BillNotificationSyncResult,
   ScheduledOccurrenceRecord,
-  ScheduledOccurrenceStatus,
   PaymentEvidence,
   PaymentEvidenceDraft,
   TransferDraft,
@@ -44,20 +39,29 @@ import {
   normalizeCurrencyCode,
 } from '../utils/currency';
 import {
-  deriveScheduledOccurrences,
-  estimateMonthlyImpact,
-  formatISODate,
-  normalizeRecurringSchedule,
-} from '../utils/recurring';
-import {
   cancelAllOccurrenceReminders,
-  cancelOccurrenceReminder,
   getScheduledNotificationPermission,
-  requestScheduledNotificationPermission as requestDeviceScheduledNotificationPermission,
-  scheduleOccurrenceReminder,
 } from '../services/scheduledNotifications';
-import { clearEvidenceFiles, deleteEvidenceFile } from '../services/paymentEvidenceFiles';
-import { paymentEvidenceId } from '../utils/paymentEvidence';
+import { clearEvidenceFiles } from '../services/paymentEvidenceFiles';
+import {
+  ALL_LEDGER_ID,
+  DEFAULT_LEDGER,
+  DEFAULT_LEDGER_ID,
+  maskAccountNumberValue,
+  migrateLegacyBillRecords,
+  monthlyProjectionValue,
+  normalizeLedger,
+  persistState,
+  recurringScheduleChanged,
+} from './budget/budgetUtils';
+import {
+  buildBudgetProgress,
+  buildGoalProgress,
+  buildStats,
+} from './budget/budgetDerivedState';
+import { useScheduledOccurrences } from './budget/useScheduledOccurrences';
+
+export { ALL_LEDGER_ID };
 
 export interface DateFilter {
   startDate: string; // YYYY-MM-DD
@@ -155,141 +159,6 @@ interface BudgetContextValue {
 }
 
 const BudgetContext = createContext<BudgetContextValue | null>(null);
-const DEFAULT_LEDGER_ID = 'default-ledger';
-export const ALL_LEDGER_ID = 'all-ledgers';
-
-const DEFAULT_LEDGER: LedgerAccount = {
-  id: DEFAULT_LEDGER_ID,
-  name: 'Cash Ledger',
-  description: 'Default account for existing entries',
-  color: '#8B5A3C',
-  currencyCode: DEFAULT_REPORTING_CURRENCY.code,
-  currencySymbol: DEFAULT_REPORTING_CURRENCY.symbol,
-  isDefault: true,
-};
-
-function normalizeLedger(ledger: LedgerAccount): LedgerAccount {
-  const currencyCode = normalizeCurrencyCode(ledger.currencyCode);
-  return {
-    ...ledger,
-    currencyCode,
-    currencySymbol: ledger.currencySymbol ?? currencyOptionFromCode(currencyCode).symbol,
-  };
-}
-
-function maskAccountNumberValue(accountNumber?: string) {
-  const clean = accountNumber?.replace(/\s+/g, '') ?? '';
-  if (!clean) return '';
-  const visible = clean.slice(-4);
-  return `${'*'.repeat(Math.max(4, clean.length - visible.length))} ${visible}`;
-}
-
-function monthStart(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), 1);
-}
-
-function addMonths(date: Date, count: number) {
-  return new Date(date.getFullYear(), date.getMonth() + count, 1);
-}
-
-function parseTransactionDate(value: string) {
-  const [year, month, day] = value.split('-').map(Number);
-  return new Date(year || 1970, (month || 1) - 1, day || 1);
-}
-
-function parseBudgetDate(value: string) {
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
-}
-
-function parseLocalDate(value?: string) {
-  if (!value) return null;
-  const [year, month, day] = value.split('-').map(Number);
-  if (!year || !month || !day) return null;
-  const parsed = new Date(year, month - 1, day);
-  parsed.setHours(0, 0, 0, 0);
-  return parsed;
-}
-
-function daysBetween(start: Date, end: Date) {
-  const startDay = new Date(start);
-  const endDay = new Date(end);
-  startDay.setHours(0, 0, 0, 0);
-  endDay.setHours(0, 0, 0, 0);
-  return Math.ceil((endDay.getTime() - startDay.getTime()) / 86400000);
-}
-
-function scheduledOccurrenceId(sourceTransactionId: string, dueDate: string) {
-  return `${sourceTransactionId}:${dueDate}`;
-}
-
-function parseScheduledOccurrenceId(id: string) {
-  const splitAt = id.lastIndexOf(':');
-  if (splitAt === -1) return { sourceTransactionId: id, dueDate: '' };
-  return {
-    sourceTransactionId: id.slice(0, splitAt),
-    dueDate: id.slice(splitAt + 1),
-  };
-}
-
-function migrateLegacyBillRecords(
-  legacy: BillOccurrenceRecord[],
-  txs: Transaction[],
-): ScheduledOccurrenceRecord[] {
-  return legacy.map((record) => {
-    const confirmedTransaction = txs.find(
-      (transaction) =>
-        transaction.generatedFromRecurringId === record.recurringTransactionId &&
-        transaction.generatedOccurrenceDate === record.dueDate,
-    );
-    return {
-      id: scheduledOccurrenceId(record.recurringTransactionId, record.dueDate),
-      sourceTransactionId: record.recurringTransactionId,
-      originalDueDate: record.dueDate,
-      effectiveDueDate: record.dueDate,
-      status: record.status === 'paid' ? 'confirmed' : 'skipped',
-      confirmedTransactionId: record.status === 'paid' ? confirmedTransaction?.id : undefined,
-      notificationId: record.notificationId,
-      notificationScheduledAt: record.notificationScheduledAt,
-      markedAt: record.markedAt,
-    };
-  });
-}
-
-async function persistState<T>(
-  next: T,
-  setState: React.Dispatch<React.SetStateAction<T>>,
-  save: (value: T) => Promise<void>,
-) {
-  setState(next);
-  try {
-    await save(next);
-  } catch (e) {
-    console.error(e);
-  }
-}
-
-function monthlyProjectionValue(transaction: Transaction) {
-  return estimateMonthlyImpact(transaction);
-}
-
-function recurringScheduleChanged(before: Transaction, after: Transaction) {
-  if (before.recurring !== after.recurring) return true;
-  if (before.date !== after.date) return true;
-  const a = before.recurringSchedule;
-  const b = after.recurringSchedule;
-  if (!a && !b) return false;
-  if (!a || !b) return true;
-  return (
-    a.frequency !== b.frequency ||
-    a.interval !== b.interval ||
-    a.startDate !== b.startDate ||
-    a.endDate !== b.endDate ||
-    a.reminderDaysBefore !== b.reminderDaysBefore ||
-    a.postMode !== b.postMode ||
-    a.paused !== b.paused
-  );
-}
 
 export function BudgetProvider({ children }: { children: React.ReactNode }) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -613,41 +482,34 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     persistTransactions(next);
   };
 
-  const cleanupScheduledRecordsForSource = useCallback(
-    (sourceTransactionId: string, mode: 'all' | 'pending' = 'all') => {
-      const matching = scheduledOccurrenceRecords.filter(
-        (record) => record.sourceTransactionId === sourceTransactionId,
-      );
-      if (matching.length === 0) return;
-      matching.forEach((record) => {
-        if (record.notificationId) {
-          cancelOccurrenceReminder(record.notificationId).catch(console.error);
-        }
-      });
-      if (mode === 'all') {
-        const occurrenceIds = new Set(matching.map((record) => record.id));
-        paymentEvidence
-          .filter((evidence) => occurrenceIds.has(evidence.occurrenceId))
-          .forEach((evidence) => deleteEvidenceFile(evidence.attachmentUri).catch(console.error));
-        persistPaymentEvidence(
-          paymentEvidence.filter((evidence) => !occurrenceIds.has(evidence.occurrenceId)),
-        );
-      }
-      persistScheduledOccurrenceRecords(
-        scheduledOccurrenceRecords.filter(
-          (record) =>
-            record.sourceTransactionId !== sourceTransactionId ||
-            (mode === 'pending' && record.status !== 'pending'),
-        ),
-      );
-    },
-    [
-      paymentEvidence,
-      persistPaymentEvidence,
-      persistScheduledOccurrenceRecords,
-      scheduledOccurrenceRecords,
-    ],
-  );
+  const scheduled = useScheduledOccurrences({
+    ledgers,
+    loading,
+    paymentEvidence,
+    persistPaymentEvidence,
+    persistScheduledOccurrenceRecords,
+    persistTransactions,
+    reportingCurrency,
+    scheduledNotificationStatus,
+    scheduledOccurrenceRecords,
+    setScheduledNotificationStatus,
+    transactions,
+  });
+  const {
+    scheduledOccurrences,
+    evidenceForOccurrence,
+    addPaymentEvidence,
+    removePaymentEvidence,
+    confirmOccurrence,
+    skipOccurrence,
+    postponeOccurrence,
+    clearOccurrenceStatus,
+    pauseSchedule,
+    resumeSchedule,
+    refreshScheduledNotificationPermission,
+    requestScheduledNotificationPermission,
+    syncScheduledNotifications,
+  } = scheduled;
 
   const updateTransaction = (updated: Transaction) => {
     const before = transactions.find((x) => x.id === updated.id);
@@ -669,12 +531,12 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     persistEditHistory([edit, ...transactionEditHistory]);
 
     if (recurringScheduleChanged(before, updated)) {
-      cleanupScheduledRecordsForSource(updated.id, 'pending');
+      scheduled.cleanupScheduledRecordsForSource(updated.id, 'pending');
     }
   };
 
   const removeTransaction = (id: string) => {
-    cleanupScheduledRecordsForSource(id, 'all');
+    scheduled.cleanupScheduledRecordsForSource(id, 'all');
     const target = transactions.find((x) => x.id === id);
     if (target?.transferPairId) {
       // Removing one half of a transfer removes the other half too.
@@ -1025,502 +887,26 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     return ledgers.find((ledger) => ledger.id === activeLedgerId) ?? null;
   }, [ledgers, activeLedgerId]);
 
-  const budgetProgress = useMemo<BudgetProgress[]>(() => {
-    if (budgets.length === 0) return [];
-    const now = new Date();
-    const currentMonthStart = monthStart(now);
-    const nextMonthStart = addMonths(currentMonthStart, 1);
-
-    const spendForBudgetInRange = (
-      budget: Budget,
-      rangeStart: Date,
-      rangeEndExclusive: Date,
-      missing: Set<string>,
-    ) => {
-      return transactions.reduce((sum, t) => {
-        if (t.type !== 'expense') return sum;
-        if (t.transferPairId) return sum;
-        if (t.category !== budget.category) return sum;
-        if (budget.ledgerId && (t.ledgerId ?? DEFAULT_LEDGER_ID) !== budget.ledgerId) return sum;
-        const d = parseTransactionDate(t.date);
-        if (d < rangeStart || d >= rangeEndExclusive) return sum;
-        const conversion = convertTransactionAmountToReporting(t);
-        if (!conversion.converted && conversion.missingCurrencyCode) {
-          missing.add(conversion.missingCurrencyCode);
-        }
-        return sum + conversion.amount;
-      }, 0);
-    };
-
-    return budgets.map((budget) => {
-      const missing = new Set<string>();
-      const baseCap = Number(budget.amount) || 0;
-      let carryOverAmount = 0;
-
-      if (budget.carryOver && baseCap > 0) {
-        let cursor = monthStart(parseBudgetDate(budget.createdAt));
-        while (cursor < currentMonthStart) {
-          const next = addMonths(cursor, 1);
-          carryOverAmount += baseCap - spendForBudgetInRange(budget, cursor, next, missing);
-          cursor = next;
-        }
-      }
-
-      const spent = spendForBudgetInRange(budget, currentMonthStart, nextMonthStart, missing);
-      const cap = Math.max(0, baseCap + carryOverAmount);
-      const percent = cap > 0 ? spent / cap : spent > 0 ? 1 : 0;
-      let status: BudgetStatus = 'safe';
-      if (percent >= 1) status = 'over';
-      else if (percent >= 0.8) status = 'warning';
-
-      return {
-        budget,
-        spent,
-        cap,
-        baseCap,
-        carryOverAmount,
-        percent,
-        status,
-        isConverted: true,
-        missingCurrencyCodes: Array.from(missing),
-      };
-    });
-  }, [budgets, convertTransactionAmountToReporting, transactions]);
-
-  const goalProgress = useMemo<GoalProgress[]>(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    return goals.map((goal) => {
-      const ledger = goal.ledgerId
-        ? ledgers.find((item) => item.id === goal.ledgerId)
-        : null;
-      const target = Math.max(0, Number(goal.targetAmount) || 0);
-      const saved = ledger ? ledgerBalance(ledger.id) : 0;
-      const remaining = Math.max(0, target - saved);
-      const percent = target > 0 ? saved / target : 0;
-      const deadline = parseLocalDate(goal.deadline);
-      const daysRemaining = deadline ? daysBetween(today, deadline) : undefined;
-      const currencyCode = goal.currencyCode || ledger?.currencyCode || reportingCurrency.code;
-      const currencySymbol =
-        goal.currencySymbol || ledger?.currencySymbol || reportingCurrency.symbol;
-      const currencyMismatch =
-        Boolean(goal.currencyCode && ledger && goal.currencyCode !== ledger.currencyCode);
-
-      let pacing: GoalPacing = 'no-deadline';
-      let suggestedMonthly = 0;
-
-      if (goal.status === 'completed') {
-        pacing = 'complete';
-      } else if (goal.status === 'paused') {
-        pacing = 'paused';
-      } else if (target > 0 && saved >= target) {
-        pacing = 'complete';
-      } else if (!deadline) {
-        pacing = 'no-deadline';
-      } else {
-        if (daysRemaining !== undefined && daysRemaining <= 0) {
-          pacing = 'behind';
-          suggestedMonthly = remaining;
-        } else {
-          const created = parseBudgetDate(goal.createdAt);
-          created.setHours(0, 0, 0, 0);
-          const totalDays = Math.max(1, daysBetween(created, deadline));
-          const elapsedDays = Math.min(totalDays, Math.max(0, daysBetween(created, today)));
-          const expectedByNow = target * (elapsedDays / totalDays);
-          if (saved > expectedByNow * 1.05) {
-            pacing = 'ahead';
-          } else if (saved >= expectedByNow) {
-            pacing = 'on-track';
-          } else {
-            pacing = 'behind';
-          }
-          const monthsRemaining = Math.max(1, Math.ceil((daysRemaining ?? 0) / 30.44));
-          suggestedMonthly = remaining / monthsRemaining;
-        }
-      }
-
-      return {
-        goal,
-        saved,
-        remaining,
-        percent,
-        pacing,
-        suggestedMonthly,
-        daysRemaining,
-        currencyCode,
-        currencySymbol,
-        linkedLedgerName: ledger?.name,
-        linkedLedgerArchived: Boolean(ledger?.archived),
-        currencyMismatch,
-      };
-    });
-  }, [goals, ledgerBalance, ledgers, reportingCurrency]);
-
-  const derivedSchedule = useMemo(
-    () => deriveScheduledOccurrences(transactions, scheduledOccurrenceRecords),
-    [scheduledOccurrenceRecords, transactions],
+  const budgetProgress = useMemo<BudgetProgress[]>(
+    () =>
+      buildBudgetProgress({
+        budgets,
+        convertTransactionAmountToReporting,
+        transactions,
+      }),
+    [budgets, convertTransactionAmountToReporting, transactions],
   );
 
-  const scheduledOccurrences = useMemo<ScheduledOccurrence[]>(() => {
-    return derivedSchedule.occurrences.map((occurrence) => {
-      const ledger = ledgers.find((item) => item.id === (occurrence.source.ledgerId ?? DEFAULT_LEDGER_ID));
-      return {
-        ...occurrence,
-        ledgerName: ledger?.name,
-        ledgerArchived: Boolean(ledger?.archived),
-        currencyCode: normalizeCurrencyCode(ledger?.currencyCode ?? reportingCurrency.code),
-        currencySymbol: ledger?.currencySymbol ?? reportingCurrency.symbol,
-      };
-    });
-  }, [derivedSchedule.occurrences, ledgers, reportingCurrency]);
-
-  useEffect(() => {
-    if (loading) return;
-    if (
-      derivedSchedule.autoConfirmTransactions.length > 0 &&
-      derivedSchedule.autoConfirmTransactions.some(
-        (next) => !transactions.some((transaction) => transaction.id === next.id),
-      )
-    ) {
-      const existingIds = new Set(transactions.map((transaction) => transaction.id));
-      const additions = derivedSchedule.autoConfirmTransactions.filter(
-        (transaction) => !existingIds.has(transaction.id),
-      );
-      if (additions.length > 0) {
-        persistTransactions([...additions, ...transactions]);
-      }
-    }
-
-    if (derivedSchedule.recordsToPersist.length !== scheduledOccurrenceRecords.length) {
-      persistScheduledOccurrenceRecords(derivedSchedule.recordsToPersist);
-    }
-  }, [
-    derivedSchedule.autoConfirmTransactions,
-    derivedSchedule.recordsToPersist,
-    loading,
-    persistScheduledOccurrenceRecords,
-    persistTransactions,
-    scheduledOccurrenceRecords.length,
-    transactions,
-  ]);
-
-  const upsertScheduledRecord = useCallback(
-    (record: ScheduledOccurrenceRecord) => {
-      const rest = scheduledOccurrenceRecords.filter((item) => item.id !== record.id);
-      persistScheduledOccurrenceRecords([record, ...rest]);
-    },
-    [persistScheduledOccurrenceRecords, scheduledOccurrenceRecords],
+  const goalProgress = useMemo<GoalProgress[]>(
+    () =>
+      buildGoalProgress({
+        goals,
+        ledgerBalance,
+        ledgers,
+        reportingCurrency,
+      }),
+    [goals, ledgerBalance, ledgers, reportingCurrency],
   );
-
-  const evidenceForOccurrence = useCallback(
-    (occurrenceId: string) =>
-      paymentEvidence
-        .filter((evidence) => evidence.occurrenceId === occurrenceId)
-        .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    [paymentEvidence],
-  );
-
-  const addPaymentEvidence = useCallback(
-    (occurrenceId: string, evidence: PaymentEvidenceDraft) => {
-      const next: PaymentEvidence = {
-        ...evidence,
-        id: paymentEvidenceId(),
-        occurrenceId,
-        createdAt: new Date().toISOString(),
-        confidence: evidence.confidence ?? 'manual',
-      };
-      persistPaymentEvidence([next, ...paymentEvidence]);
-    },
-    [paymentEvidence, persistPaymentEvidence],
-  );
-
-  const removePaymentEvidence = useCallback(
-    (id: string) => {
-      const existing = paymentEvidence.find((evidence) => evidence.id === id);
-      if (existing?.attachmentUri) {
-        deleteEvidenceFile(existing.attachmentUri).catch(console.error);
-      }
-      persistPaymentEvidence(paymentEvidence.filter((evidence) => evidence.id !== id));
-    },
-    [paymentEvidence, persistPaymentEvidence],
-  );
-
-  const confirmOccurrence = useCallback(
-    (id: string, override?: ConfirmOccurrenceOverride) => {
-      const occurrence = scheduledOccurrences.find((item) => item.id === id);
-      const parsed = parseScheduledOccurrenceId(id);
-      const source =
-        occurrence?.source ?? transactions.find((transaction) => transaction.id === parsed.sourceTransactionId);
-      if (!source) return;
-
-      const existing = scheduledOccurrenceRecords.find((record) => record.id === id);
-      if (existing?.status === 'confirmed') return;
-      if (existing?.notificationId) {
-        cancelOccurrenceReminder(existing.notificationId).catch(console.error);
-      }
-
-      const effectiveDueDate =
-        override?.date ?? occurrence?.effectiveDueDate ?? existing?.effectiveDueDate ?? parsed.dueDate;
-      const originalDueDate = occurrence?.originalDueDate ?? existing?.originalDueDate ?? parsed.dueDate;
-      const nowStamp = Date.now();
-      const markedAt = new Date().toISOString();
-      const confirmedTransaction: Transaction = {
-        ...source,
-        id: `${source.id}-${effectiveDueDate}-${nowStamp}`,
-        amount: override?.amount ?? source.amount,
-        category: override?.category ?? source.category,
-        ledgerId: override?.ledgerId ?? source.ledgerId,
-        date: effectiveDueDate,
-        recurring: false,
-        recurringSchedule: undefined,
-        generatedFromRecurringId: source.id,
-        generatedOccurrenceDate: effectiveDueDate,
-      };
-
-      persistTransactions([confirmedTransaction, ...transactions]);
-      upsertScheduledRecord({
-        ...existing,
-        id,
-        sourceTransactionId: source.id,
-        originalDueDate,
-        effectiveDueDate,
-        status: 'confirmed',
-        confirmedTransactionId: confirmedTransaction.id,
-        notificationId: undefined,
-        notificationScheduledAt: undefined,
-        markedAt,
-      });
-
-      if (override?.evidence?.length) {
-        const additions = override.evidence.map<PaymentEvidence>((draft) => ({
-          ...draft,
-          id: paymentEvidenceId(),
-          occurrenceId: id,
-          confirmedTransactionId: confirmedTransaction.id,
-          createdAt: markedAt,
-          confidence: draft.confidence ?? 'manual',
-        }));
-        persistPaymentEvidence([...additions, ...paymentEvidence]);
-      }
-    },
-    [
-      paymentEvidence,
-      persistPaymentEvidence,
-      persistTransactions,
-      scheduledOccurrenceRecords,
-      scheduledOccurrences,
-      transactions,
-      upsertScheduledRecord,
-    ],
-  );
-
-  const setOccurrenceStatus = useCallback(
-    (id: string, status: ScheduledOccurrenceStatus) => {
-      const occurrence = scheduledOccurrences.find((item) => item.id === id);
-      const parsed = parseScheduledOccurrenceId(id);
-      const existing = scheduledOccurrenceRecords.find((record) => record.id === id);
-      if (existing?.notificationId) {
-        cancelOccurrenceReminder(existing.notificationId).catch(console.error);
-      }
-      const sourceTransactionId =
-        occurrence?.source.id ?? existing?.sourceTransactionId ?? parsed.sourceTransactionId;
-      const originalDueDate = occurrence?.originalDueDate ?? existing?.originalDueDate ?? parsed.dueDate;
-      const effectiveDueDate = occurrence?.effectiveDueDate ?? existing?.effectiveDueDate ?? parsed.dueDate;
-      upsertScheduledRecord({
-        ...existing,
-        id,
-        sourceTransactionId,
-        originalDueDate,
-        effectiveDueDate,
-        status,
-        notificationId: undefined,
-        notificationScheduledAt: undefined,
-        markedAt: new Date().toISOString(),
-      });
-    },
-    [scheduledOccurrenceRecords, scheduledOccurrences, upsertScheduledRecord],
-  );
-
-  const skipOccurrence = useCallback(
-    (id: string) => setOccurrenceStatus(id, 'skipped'),
-    [setOccurrenceStatus],
-  );
-
-  const postponeOccurrence = useCallback(
-    (id: string, newDate: string) => {
-      const todayIso = formatISODate(new Date());
-      if (newDate < todayIso) return;
-
-      const occurrence = scheduledOccurrences.find((item) => item.id === id);
-      const parsed = parseScheduledOccurrenceId(id);
-      const source =
-        occurrence?.source ?? transactions.find((transaction) => transaction.id === parsed.sourceTransactionId);
-      const schedule = source ? normalizeRecurringSchedule(source) : undefined;
-      if (!source || (schedule?.endDate && newDate > schedule.endDate)) return;
-
-      const existing = scheduledOccurrenceRecords.find((record) => record.id === id);
-      if (existing?.notificationId) {
-        cancelOccurrenceReminder(existing.notificationId).catch(console.error);
-      }
-
-      upsertScheduledRecord({
-        ...existing,
-        id,
-        sourceTransactionId: source.id,
-        originalDueDate: occurrence?.originalDueDate ?? existing?.originalDueDate ?? parsed.dueDate,
-        effectiveDueDate: newDate,
-        status: 'postponed',
-        postponedFrom: occurrence?.effectiveDueDate ?? existing?.effectiveDueDate ?? parsed.dueDate,
-        notificationId: undefined,
-        notificationScheduledAt: undefined,
-        markedAt: new Date().toISOString(),
-      });
-    },
-    [scheduledOccurrenceRecords, scheduledOccurrences, transactions, upsertScheduledRecord],
-  );
-
-  const clearOccurrenceStatus = useCallback(
-    (id: string) => {
-      const existing = scheduledOccurrenceRecords.find((record) => record.id === id);
-      if (existing?.notificationId) {
-        cancelOccurrenceReminder(existing.notificationId).catch(console.error);
-      }
-      persistScheduledOccurrenceRecords(scheduledOccurrenceRecords.filter((record) => record.id !== id));
-    },
-    [persistScheduledOccurrenceRecords, scheduledOccurrenceRecords],
-  );
-
-  const pauseSchedule = useCallback(
-    (transactionId: string) => {
-      const nowIso = new Date().toISOString();
-      const source = transactions.find((transaction) => transaction.id === transactionId);
-      if (!source?.recurringSchedule) return;
-      scheduledOccurrenceRecords
-        .filter((record) => record.sourceTransactionId === transactionId && record.notificationId)
-        .forEach((record) => cancelOccurrenceReminder(record.notificationId).catch(console.error));
-
-      persistTransactions(
-        transactions.map((transaction) =>
-          transaction.id === transactionId
-            ? {
-                ...transaction,
-                recurringSchedule: {
-                  ...transaction.recurringSchedule!,
-                  paused: true,
-                  pausedAt: nowIso,
-                },
-              }
-            : transaction,
-        ),
-      );
-    },
-    [persistTransactions, scheduledOccurrenceRecords, transactions],
-  );
-
-  const resumeSchedule = useCallback(
-    (transactionId: string) => {
-      const todayIso = formatISODate(new Date());
-      persistTransactions(
-        transactions.map((transaction) =>
-          transaction.id === transactionId && transaction.recurringSchedule
-            ? {
-                ...transaction,
-                recurringSchedule: {
-                  ...transaction.recurringSchedule,
-                  paused: false,
-                  pausedAt: undefined,
-                  startDate: todayIso,
-                },
-              }
-            : transaction,
-        ),
-      );
-    },
-    [persistTransactions, transactions],
-  );
-
-  const refreshScheduledNotificationPermission = useCallback(async () => {
-    const nextStatus = await getScheduledNotificationPermission();
-    setScheduledNotificationStatus(nextStatus);
-    return nextStatus;
-  }, []);
-
-  const syncScheduledNotifications = useCallback(async (): Promise<BillNotificationSyncResult> => {
-    const permission = await getScheduledNotificationPermission();
-    setScheduledNotificationStatus(permission);
-    if (permission !== 'granted') return { scheduled: 0, skipped: scheduledOccurrences.length };
-
-    const recordMap = new Map(scheduledOccurrenceRecords.map((record) => [record.id, record]));
-    const nextRecordMap = new Map(recordMap);
-    let scheduled = 0;
-    let skipped = 0;
-
-    for (const occurrence of scheduledOccurrences) {
-      const schedule = normalizeRecurringSchedule(occurrence.source);
-      const closed =
-        occurrence.recordStatus === 'confirmed' ||
-        occurrence.recordStatus === 'skipped' ||
-        occurrence.status === 'confirmed' ||
-        occurrence.status === 'skipped';
-      if (closed || schedule?.paused || occurrence.reminderDaysBefore <= 0) {
-        skipped += 1;
-        continue;
-      }
-
-      const existing = recordMap.get(occurrence.id);
-      if (existing?.notificationId) {
-        await cancelOccurrenceReminder(existing.notificationId);
-      }
-
-      const notificationId = await scheduleOccurrenceReminder({
-        id: occurrence.id,
-        title: occurrence.source.description,
-        dueDate: occurrence.effectiveDueDate,
-        reminderDaysBefore: occurrence.reminderDaysBefore,
-        type: occurrence.type,
-      });
-
-      if (!notificationId) {
-        skipped += 1;
-        continue;
-      }
-
-      scheduled += 1;
-      nextRecordMap.set(occurrence.id, {
-        ...existing,
-        id: occurrence.id,
-        sourceTransactionId: occurrence.source.id,
-        originalDueDate: occurrence.originalDueDate,
-        effectiveDueDate: occurrence.effectiveDueDate,
-        status: occurrence.recordStatus ?? 'pending',
-        notificationId,
-        notificationScheduledAt: new Date().toISOString(),
-      });
-    }
-
-    persistScheduledOccurrenceRecords(Array.from(nextRecordMap.values()));
-    return { scheduled, skipped };
-  }, [persistScheduledOccurrenceRecords, scheduledOccurrenceRecords, scheduledOccurrences]);
-
-  const requestScheduledNotificationPermission = useCallback(async () => {
-    const nextStatus = await requestDeviceScheduledNotificationPermission();
-    setScheduledNotificationStatus(nextStatus);
-    if (nextStatus === 'granted') {
-      await syncScheduledNotifications();
-    }
-    return nextStatus;
-  }, [syncScheduledNotifications]);
-
-  const autoSyncedRef = useRef(false);
-  useEffect(() => {
-    if (loading) return;
-    if (autoSyncedRef.current) return;
-    if (scheduledNotificationStatus !== 'granted') return;
-    if (scheduledOccurrences.length === 0) return;
-    autoSyncedRef.current = true;
-    syncScheduledNotifications().catch(console.error);
-  }, [loading, scheduledNotificationStatus, scheduledOccurrences, syncScheduledNotifications]);
 
   const billOccurrences = scheduledOccurrences;
   const billOccurrenceRecords = scheduledOccurrenceRecords;
@@ -1532,70 +918,29 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   const requestBillNotificationPermission = requestScheduledNotificationPermission;
   const syncBillNotifications = syncScheduledNotifications;
 
-  const stats = useMemo<Stats>(() => {
-    const start = new Date(dateFilter.startDate);
-    const end = new Date(dateFilter.endDate);
-    end.setHours(23, 59, 59, 999);
-    const filtered = scopedTransactions.filter((t) => {
-      const d = new Date(t.date);
-      return d >= start && d <= end;
-    });
-    const missing = new Set<string>();
-    const totals = filtered.reduce(
-      (next, transaction) => {
-        // Transfers move money between accounts but don't represent income or
-        // expense. Exclude them from headline stats.
-        if (transaction.transferPairId) return next;
-
-        const conversion =
-          activeLedgerId === ALL_LEDGER_ID
-            ? convertTransactionAmountToReporting(transaction)
-            : { amount: Number(transaction.amount), converted: true };
-
-        if (!conversion.converted && conversion.missingCurrencyCode) {
-          missing.add(conversion.missingCurrencyCode);
-        }
-
-        if (transaction.type === 'income') {
-          next.income += conversion.amount;
-        } else {
-          next.expenses += conversion.amount;
-        }
-        return next;
-      },
-      { income: 0, expenses: 0 },
-    );
-
-    const currencyCode =
-      activeLedgerId === ALL_LEDGER_ID
-        ? reportingCurrency.code
-        : normalizeCurrencyCode(activeLedger?.currencyCode);
-    const currencySymbol =
-      activeLedgerId === ALL_LEDGER_ID
-        ? reportingCurrency.symbol
-        : activeLedger?.currencySymbol ?? currency;
-
-    return {
-      income: totals.income,
-      expenses: totals.expenses,
-      balance: totals.income - totals.expenses,
-      count: filtered.length,
-      isConverted: activeLedgerId === ALL_LEDGER_ID,
-      currencyCode,
-      currencySymbol,
-      missingCurrencyCodes: Array.from(missing),
-      rateAsOf: activeLedgerId === ALL_LEDGER_ID ? fxRates?.asOf : undefined,
-    };
-  }, [
-    activeLedger,
-    activeLedgerId,
-    convertTransactionAmountToReporting,
-    currency,
-    dateFilter,
-    fxRates,
-    reportingCurrency,
-    scopedTransactions,
-  ]);
+  const stats = useMemo<Stats>(
+    () =>
+      buildStats({
+        activeLedger,
+        activeLedgerId,
+        convertTransactionAmountToReporting,
+        currency,
+        dateFilter,
+        fxRates,
+        reportingCurrency,
+        scopedTransactions,
+      }),
+    [
+      activeLedger,
+      activeLedgerId,
+      convertTransactionAmountToReporting,
+      currency,
+      dateFilter,
+      fxRates,
+      reportingCurrency,
+      scopedTransactions,
+    ],
+  );
 
   const contextValue: BudgetContextValue = {
     transactions,

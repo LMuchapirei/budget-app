@@ -1,0 +1,180 @@
+import { StyleSheet } from 'react-native';
+import type { ColorPalette } from '../../context/ThemeContext';
+import { fonts } from '../../theme';
+
+export const createTransactionFormStyles = (colors: ColorPalette) =>
+  StyleSheet.create({
+    modalRoot: { flex: 1, justifyContent: 'flex-end' },
+    modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.overlay },
+    sheet: {
+      backgroundColor: colors.cream,
+      borderTopLeftRadius: 28,
+      borderTopRightRadius: 28,
+      padding: 24,
+      paddingBottom: 32,
+      borderWidth: 1,
+      borderColor: 'rgba(139,90,60,0.2)',
+      gap: 18,
+      maxHeight: '90%',
+    },
+    sheetHandle: {
+      alignSelf: 'center',
+      width: 44,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: colors.chip,
+      marginTop: -8,
+    },
+    sheetHead: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    sheetTitle: {
+      fontFamily: fonts.displayLight,
+      fontSize: 22,
+      color: colors.ink,
+    },
+    typeToggle: {
+      flexDirection: 'row',
+      gap: 6,
+      padding: 4,
+      backgroundColor: colors.chip,
+      borderRadius: 999,
+    },
+    typeButton: {
+      flex: 1,
+      paddingVertical: 10,
+      borderRadius: 999,
+      alignItems: 'center',
+    },
+    typeLabel: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: 13,
+    },
+    formScroll: {
+      maxHeight: 420,
+    },
+    amountRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
+    amountSign: { fontFamily: fonts.displayLight, fontSize: 28, color: colors.stone400 },
+    amountInput: {
+      flex: 1,
+      fontFamily: fonts.displayLight,
+      fontSize: 28,
+      color: colors.ink,
+      paddingVertical: 4,
+    },
+    input: {
+      fontFamily: fonts.body,
+      fontSize: 15,
+      paddingVertical: 6,
+      borderBottomWidth: 1,
+      borderBottomColor: 'rgba(139,90,60,0.2)',
+      color: colors.ink,
+    },
+    dateButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: 'rgba(139,90,60,0.2)',
+    },
+    dateButtonText: {
+      fontFamily: fonts.body,
+      fontSize: 15,
+      color: colors.ink,
+    },
+    dateButtonPlaceholder: {
+      color: colors.stone400,
+    },
+    chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    chip: {
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+      borderRadius: 999,
+    },
+    accountChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+      borderRadius: 999,
+      backgroundColor: colors.chip,
+    },
+    chipLabel: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: 12,
+    },
+    accountCurrency: {
+      fontFamily: fonts.body,
+      fontSize: 11,
+    },
+    recurringRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingTop: 4,
+    },
+    recurringLabelGroup: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    recurringRowLabel: {
+      fontFamily: fonts.body,
+      fontSize: 13,
+      color: colors.stone600,
+    },
+    scheduleHint: {
+      fontFamily: fonts.body,
+      fontSize: 11,
+      color: colors.stone500,
+      marginTop: 2,
+    },
+    schedulePanel: {
+      gap: 14,
+      padding: 14,
+      borderRadius: 16,
+      backgroundColor: colors.paper,
+      borderWidth: 1,
+      borderColor: colors.borderSoft,
+    },
+    scheduleGrid: {
+      flexDirection: 'row',
+      gap: 14,
+    },
+    scheduleGridItem: {
+      flex: 1,
+      minWidth: 0,
+    },
+    pauseScheduleButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      paddingVertical: 11,
+      borderRadius: 999,
+      backgroundColor: colors.chip,
+    },
+    pauseScheduleLabel: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: 12,
+      color: colors.stone600,
+    },
+    submit: {
+      backgroundColor: colors.ink,
+      paddingVertical: 14,
+      borderRadius: 999,
+      alignItems: 'center',
+      marginTop: 4,
+    },
+    submitDisabled: { opacity: 0.4 },
+    submitLabel: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: 14,
+      color: colors.paper,
+      letterSpacing: 0.5,
+    },
+  });
