@@ -10,12 +10,12 @@ import {
 } from 'react-native';
 import {
   Bell,
+  Bug,
   ExternalLink,
   Globe,
   Image as ImageIcon,
   ShieldCheck,
   Smartphone,
-  WifiOff,
   X,
 } from 'lucide-react-native';
 import type { LucideIcon } from 'lucide-react-native';
@@ -61,9 +61,14 @@ const SECTIONS: DataSection[] = [
     body: 'Biometric and passcode unlocks are handled by Android or iOS. Your fingerprint or face data is never accessible to the app.',
   },
   {
-    Icon: WifiOff,
-    title: 'No analytics or trackers',
-    body: 'There are no third-party trackers, no analytics, no ads, and no account required.',
+    Icon: Bug,
+    title: 'Crash reports — opt-in',
+    body: "Off by default. If you turn on diagnostics in Settings, the app sends technical error details (stack traces, device model, app version) to help fix bugs. No transactions, balances, names, or contacts are sent. You can turn it off any time.",
+  },
+  {
+    Icon: ShieldCheck,
+    title: 'No ads or third-party trackers',
+    body: 'There are no advertising trackers, behavioural analytics, or accounts. The only network calls are exchange-rate lookups and the optional crash reports above.',
   },
 ];
 

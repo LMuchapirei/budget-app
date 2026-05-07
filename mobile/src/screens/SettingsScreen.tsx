@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -6,16 +6,23 @@ import {
   Pressable,
   ActivityIndicator,
   Linking,
+  Modal,
+  StyleSheet,
+  TextInput,
 } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import { useBudget } from '../context/BudgetContext';
 import { useLock } from '../context/LockContext';
 import {
   Bell,
+  Bug,
   Check,
   ChevronRight,
+  Database,
+  Download,
   ExternalLink,
   FileText,
+  FileUp,
   Info,
   Moon,
   Palette,
@@ -28,6 +35,8 @@ import {
   Lock,
   SunMoon,
   Type,
+  Upload,
+  X,
 } from 'lucide-react-native';
 import { REPORTING_CURRENCY_OPTIONS } from '../utils/currency';
 import { ACCENT_SWATCHES, type ThemeMode, type ThemePresetId } from '../context/ThemeContext';
@@ -36,6 +45,17 @@ import type { FontPairId } from '../theme';
 import { PRIVACY_POLICY_URL } from '../services/legal';
 import { DataHandlingSheet } from '../components/forms/DataHandlingSheet';
 import { CategoryManagerSheet } from '../components/forms/CategoryManagerSheet';
+import {
+  isDiagnosticsEnabled,
+  loadDiagnosticsPref,
+  setDiagnosticsEnabled,
+} from '../services/diagnostics';
+import {
+  exportBackupJsonFile,
+  exportTransactionsCsvFile,
+  pickAndParseBackup,
+} from '../services/backup';
+import { fonts } from '../theme';
 import { createSettingsStyles } from './settings/settingsStyles';
 
 export function SettingsScreen() {
@@ -60,6 +80,15 @@ export function SettingsScreen() {
     scheduledNotificationStatus,
     requestScheduledNotificationPermission,
     syncScheduledNotifications,
+    transactions,
+    ledgers,
+    customCategories,
+    budgets,
+    goals,
+    scheduledOccurrenceRecords,
+    paymentEvidence,
+    transactionEditHistory,
+    restoreBackup,
   } = useBudget();
   const { isAppLockEnabled, setAppLockEnabled } = useLock();
   const { replay: replayOnboarding } = useOnboarding();
@@ -69,6 +98,105 @@ export function SettingsScreen() {
   const [reminderNote, setReminderNote] = useState('');
   const [showDataHandling, setShowDataHandling] = useState(false);
   const [showCategoryManager, setShowCategoryManager] = useState(false);
+  const [diagnosticsOn, setDiagnosticsOn] = useState(isDiagnosticsEnabled);
+  const [crashOnRender, setCrashOnRender] = useState(false);
+  const [dataBusy, setDataBusy] = useState<null | 'csv' | 'json' | 'restore'>(null);
+  const [dataNote, setDataNote] = useState('');
+  const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [clearBusy, setClearBusy] = useState(false);
+  const [clearNote, setClearNote] = useState('');
+
+  if (crashOnRender) {
+    throw new Error('Demo: forced crash from Settings');
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    loadDiagnosticsPref().then((value) => {
+      if (!cancelled) setDiagnosticsOn(value);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleDiagnosticsToggle = async (next: boolean) => {
+    setDiagnosticsOn(next);
+    try {
+      await setDiagnosticsEnabled(next);
+    } catch {
+      setDiagnosticsOn(!next);
+    }
+  };
+
+  const handleExportCsv = async () => {
+    setDataBusy('csv');
+    setDataNote('');
+    try {
+      await exportTransactionsCsvFile(transactions, ledgers);
+      setDataNote(`Exported ${transactions.length} transaction${transactions.length === 1 ? '' : 's'}.`);
+    } catch (error) {
+      setDataNote(error instanceof Error ? error.message : 'Could not export CSV.');
+    } finally {
+      setDataBusy(null);
+    }
+  };
+
+  const handleExportBackup = async () => {
+    setDataBusy('json');
+    setDataNote('');
+    try {
+      await exportBackupJsonFile({
+        transactions,
+        ledgers,
+        customCategories,
+        budgets,
+        goals,
+        scheduledOccurrenceRecords,
+        paymentEvidence,
+        transactionEditHistory,
+      });
+      setDataNote('Backup file ready to share.');
+    } catch (error) {
+      setDataNote(error instanceof Error ? error.message : 'Could not export backup.');
+    } finally {
+      setDataBusy(null);
+    }
+  };
+
+  const handleRestore = async () => {
+    setShowRestoreConfirm(false);
+    setDataBusy('restore');
+    setDataNote('');
+    try {
+      const payload = await pickAndParseBackup();
+      if (!payload) {
+        setDataNote('');
+        return;
+      }
+      await restoreBackup(payload);
+      setDataNote('Backup restored. Re-enable schedule reminders if you use them.');
+    } catch (error) {
+      setDataNote(error instanceof Error ? error.message : 'Could not restore backup.');
+    } finally {
+      setDataBusy(null);
+    }
+  };
+
+  const handleClearAllData = async () => {
+    setClearBusy(true);
+    setClearNote('');
+    try {
+      await clearAllData();
+      setShowClearConfirm(false);
+      setClearNote('All data cleared.');
+    } catch (error) {
+      setClearNote(error instanceof Error ? error.message : 'Could not clear data.');
+    } finally {
+      setClearBusy(false);
+    }
+  };
 
   const openPrivacyPolicy = () => {
     Linking.openURL(PRIVACY_POLICY_URL).catch(() => undefined);
@@ -390,6 +518,126 @@ export function SettingsScreen() {
         </Pressable>
       </View>
 
+      <Text style={styles.sectionHeader}>Data</Text>
+      <View style={styles.card}>
+        <Pressable
+          onPress={handleExportCsv}
+          disabled={dataBusy !== null || transactions.length === 0}
+          style={[
+            styles.aboutRow,
+            (dataBusy !== null || transactions.length === 0) && { opacity: 0.5 },
+          ]}
+          accessibilityRole="button"
+        >
+          <View style={styles.rowLeft}>
+            <Download size={20} color={colors.stone500} />
+            <View>
+              <Text style={styles.rowLabel}>Export transactions (CSV)</Text>
+              <Text style={styles.aboutMeta}>
+                Spreadsheet-friendly. Transactions only — no budgets or goals.
+              </Text>
+            </View>
+          </View>
+          {dataBusy === 'csv' ? (
+            <ActivityIndicator color={colors.rust} />
+          ) : (
+            <ChevronRight size={16} color={colors.stone500} />
+          )}
+        </Pressable>
+
+        <View style={styles.divider} />
+
+        <Pressable
+          onPress={handleExportBackup}
+          disabled={dataBusy !== null}
+          style={[styles.aboutRow, dataBusy !== null && { opacity: 0.5 }]}
+          accessibilityRole="button"
+        >
+          <View style={styles.rowLeft}>
+            <Database size={20} color={colors.stone500} />
+            <View>
+              <Text style={styles.rowLabel}>Export full backup (JSON)</Text>
+              <Text style={styles.aboutMeta}>
+                Everything you can restore later. Receipt photos are not included.
+              </Text>
+            </View>
+          </View>
+          {dataBusy === 'json' ? (
+            <ActivityIndicator color={colors.rust} />
+          ) : (
+            <ChevronRight size={16} color={colors.stone500} />
+          )}
+        </Pressable>
+
+        <View style={styles.divider} />
+
+        <Pressable
+          onPress={() => setShowRestoreConfirm(true)}
+          disabled={dataBusy !== null}
+          style={[styles.aboutRow, dataBusy !== null && { opacity: 0.5 }]}
+          accessibilityRole="button"
+        >
+          <View style={styles.rowLeft}>
+            <Upload size={20} color={colors.stone500} />
+            <View>
+              <Text style={styles.rowLabel}>Restore from backup</Text>
+              <Text style={styles.aboutMeta}>
+                Replaces all current data with the backup file you pick.
+              </Text>
+            </View>
+          </View>
+          {dataBusy === 'restore' ? (
+            <ActivityIndicator color={colors.rust} />
+          ) : (
+            <ChevronRight size={16} color={colors.stone500} />
+          )}
+        </Pressable>
+
+        {dataNote ? <Text style={styles.reminderNote}>{dataNote}</Text> : null}
+      </View>
+
+      <Text style={styles.sectionHeader}>Diagnostics</Text>
+      <View style={styles.card}>
+        <View style={styles.row}>
+          <View style={[styles.rowLeft, { flex: 1, minWidth: 0 }]}>
+            <Bug size={20} color={colors.stone500} />
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.rowLabel}>Send anonymous crash reports</Text>
+              <Text style={styles.aboutMeta}>
+                Off by default. Helps fix bugs — no transactions or balances are sent.
+              </Text>
+            </View>
+          </View>
+          <Switch
+            value={diagnosticsOn}
+            onValueChange={handleDiagnosticsToggle}
+            trackColor={{ true: colors.rust, false: colors.chip }}
+            thumbColor={colors.cream}
+          />
+        </View>
+
+        <View style={styles.divider} />
+
+        <Pressable
+          onPress={() => setCrashOnRender(true)}
+          style={styles.aboutRow}
+          accessibilityRole="button"
+        >
+          <View style={styles.rowLeft}>
+            <Bug size={20} color={colors.clay} />
+            <View>
+              <Text style={[styles.rowLabel, { color: colors.clay }]}>
+                Trigger test crash
+              </Text>
+              <Text style={styles.aboutMeta}>
+                Demo only — throws an error to show the recovery screen.
+              </Text>
+            </View>
+          </View>
+          <ChevronRight size={16} color={colors.stone500} />
+        </Pressable>
+      </View>
+
       <Text style={styles.sectionHeader}>About</Text>
       <View style={styles.card}>
         <Pressable
@@ -447,8 +695,12 @@ export function SettingsScreen() {
       <Text style={styles.sectionHeader}>Danger Zone</Text>
       <View style={styles.card}>
         <Pressable
-          onPress={() => clearAllData()}
+          onPress={() => {
+            setClearNote('');
+            setShowClearConfirm(true);
+          }}
           style={styles.dangerRow}
+          accessibilityRole="button"
         >
           <Trash2 size={20} color={colors.clay} />
           <Text style={styles.dangerLabel}>Clear All Data & Reset</Text>
@@ -456,6 +708,7 @@ export function SettingsScreen() {
         <Text style={styles.dangerDesc}>
           This will permanently delete all transactions and custom categories from your device.
         </Text>
+        {clearNote ? <Text style={styles.reminderNote}>{clearNote}</Text> : null}
       </View>
 
       <DataHandlingSheet
@@ -467,6 +720,370 @@ export function SettingsScreen() {
         visible={showCategoryManager}
         onClose={() => setShowCategoryManager(false)}
       />
+
+      <RestoreConfirmModal
+        visible={showRestoreConfirm}
+        onCancel={() => setShowRestoreConfirm(false)}
+        onConfirm={handleRestore}
+        colors={colors}
+      />
+
+      <ClearAllConfirmModal
+        visible={showClearConfirm}
+        busy={clearBusy}
+        onCancel={() => setShowClearConfirm(false)}
+        onConfirm={handleClearAllData}
+        colors={colors}
+      />
     </View>
   );
 }
+
+interface RestoreConfirmModalProps {
+  visible: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+  colors: ReturnType<typeof useTheme>['colors'];
+}
+
+function RestoreConfirmModal({ visible, onCancel, onConfirm, colors }: RestoreConfirmModalProps) {
+  const styles = React.useMemo(() => createRestoreStyles(colors), [colors]);
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
+      <View style={styles.modalRoot}>
+        <Pressable style={styles.modalBackdrop} onPress={onCancel} />
+        <View style={styles.sheet}>
+          <View style={styles.sheetHandle} />
+          <View style={styles.sheetHead}>
+            <Text style={styles.sheetTitle}>Restore from backup?</Text>
+            <Pressable onPress={onCancel} hitSlop={8} accessibilityLabel="Close">
+              <X size={20} color={colors.stone500} />
+            </Pressable>
+          </View>
+          <Text style={styles.body}>
+            This will <Text style={styles.bodyEmphasis}>replace all of your current data</Text> with
+            the contents of the file you pick — transactions, ledgers, budgets, goals, categories,
+            scheduled bills, and payment evidence. This can&apos;t be undone.
+          </Text>
+          <Text style={styles.bodyMeta}>
+            Theme, currency, lock, and reminder permissions are kept as-is.
+          </Text>
+          <View style={styles.actions}>
+            <Pressable
+              onPress={onCancel}
+              style={({ pressed }) => [styles.cancelBtn, pressed && { opacity: 0.85 }]}
+              accessibilityRole="button"
+            >
+              <Text style={styles.cancelLabel}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              onPress={onConfirm}
+              style={({ pressed }) => [styles.confirmBtn, pressed && { opacity: 0.85 }]}
+              accessibilityRole="button"
+            >
+              <FileUp size={14} color={colors.paper} />
+              <Text style={styles.confirmLabel}>Pick file & restore</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const CLEAR_CONFIRM_PHRASE = 'delete my data';
+
+interface ClearAllConfirmModalProps {
+  visible: boolean;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+  colors: ReturnType<typeof useTheme>['colors'];
+}
+
+function ClearAllConfirmModal({
+  visible,
+  busy,
+  onCancel,
+  onConfirm,
+  colors,
+}: ClearAllConfirmModalProps) {
+  const styles = React.useMemo(() => createClearStyles(colors), [colors]);
+  const [typed, setTyped] = useState('');
+
+  useEffect(() => {
+    if (!visible) setTyped('');
+  }, [visible]);
+
+  const matches = typed.trim().toLowerCase() === CLEAR_CONFIRM_PHRASE;
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
+      <View style={styles.modalRoot}>
+        <Pressable style={styles.modalBackdrop} onPress={busy ? undefined : onCancel} />
+        <View style={styles.sheet}>
+          <View style={styles.sheetHandle} />
+          <View style={styles.sheetHead}>
+            <Text style={styles.sheetTitle}>Clear all data?</Text>
+            <Pressable
+              onPress={onCancel}
+              hitSlop={8}
+              accessibilityLabel="Close"
+              disabled={busy}
+            >
+              <X size={20} color={colors.stone500} />
+            </Pressable>
+          </View>
+          <Text style={styles.body}>
+            This <Text style={styles.bodyEmphasis}>permanently deletes</Text> every transaction,
+            ledger, custom category, budget, goal, scheduled bill, payment evidence, and edit
+            history on this device. This can&apos;t be undone.
+          </Text>
+          <Text style={styles.bodyMeta}>
+            Theme, lock, currency, and onboarding state are kept.
+          </Text>
+          <Text style={styles.prompt}>
+            Type <Text style={styles.promptPhrase}>{CLEAR_CONFIRM_PHRASE}</Text> to confirm.
+          </Text>
+          <TextInput
+            value={typed}
+            onChangeText={setTyped}
+            placeholder={CLEAR_CONFIRM_PHRASE}
+            placeholderTextColor={colors.stone500}
+            autoCapitalize="none"
+            autoCorrect={false}
+            spellCheck={false}
+            editable={!busy}
+            style={styles.input}
+            accessibilityLabel="Confirmation phrase"
+          />
+          <View style={styles.actions}>
+            <Pressable
+              onPress={onCancel}
+              disabled={busy}
+              style={({ pressed }) => [
+                styles.cancelBtn,
+                pressed && { opacity: 0.85 },
+                busy && { opacity: 0.5 },
+              ]}
+              accessibilityRole="button"
+            >
+              <Text style={styles.cancelLabel}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              onPress={onConfirm}
+              disabled={!matches || busy}
+              style={({ pressed }) => [
+                styles.confirmBtn,
+                pressed && { opacity: 0.85 },
+                (!matches || busy) && { opacity: 0.4 },
+              ]}
+              accessibilityRole="button"
+            >
+              {busy ? (
+                <ActivityIndicator color={colors.paper} />
+              ) : (
+                <>
+                  <Trash2 size={14} color={colors.paper} />
+                  <Text style={styles.confirmLabel}>Delete everything</Text>
+                </>
+              )}
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const createClearStyles = (colors: any) =>
+  StyleSheet.create({
+    modalRoot: { flex: 1, justifyContent: 'flex-end' },
+    modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.overlay },
+    sheet: {
+      backgroundColor: colors.cream,
+      borderTopLeftRadius: 28,
+      borderTopRightRadius: 28,
+      padding: 24,
+      paddingBottom: 32,
+      borderWidth: 1,
+      borderColor: colors.borderSoft,
+      gap: 14,
+    },
+    sheetHandle: {
+      alignSelf: 'center',
+      width: 44,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: colors.chip,
+      marginTop: -8,
+    },
+    sheetHead: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    sheetTitle: {
+      fontFamily: fonts.displayLight,
+      fontSize: 22,
+      color: colors.ink,
+      flex: 1,
+      paddingRight: 12,
+    },
+    body: {
+      fontFamily: fonts.body,
+      fontSize: 13,
+      lineHeight: 20,
+      color: colors.stone600,
+    },
+    bodyEmphasis: {
+      fontFamily: fonts.bodySemibold,
+      color: colors.clay,
+    },
+    bodyMeta: {
+      fontFamily: fonts.body,
+      fontSize: 12,
+      lineHeight: 18,
+      color: colors.stone500,
+    },
+    prompt: {
+      fontFamily: fonts.body,
+      fontSize: 13,
+      lineHeight: 20,
+      color: colors.stone600,
+      marginTop: 4,
+    },
+    promptPhrase: {
+      fontFamily: fonts.bodySemibold,
+      color: colors.ink,
+    },
+    input: {
+      borderWidth: 1,
+      borderColor: colors.borderSoft,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      backgroundColor: colors.paper,
+      fontFamily: fonts.body,
+      fontSize: 14,
+      color: colors.ink,
+    },
+    actions: {
+      flexDirection: 'row',
+      gap: 10,
+      marginTop: 4,
+    },
+    cancelBtn: {
+      flex: 1,
+      paddingVertical: 13,
+      borderRadius: 999,
+      backgroundColor: colors.chip,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    cancelLabel: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: 13,
+      color: colors.inkSoft,
+    },
+    confirmBtn: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      paddingVertical: 13,
+      borderRadius: 999,
+      backgroundColor: colors.clay,
+    },
+    confirmLabel: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: 13,
+      color: colors.paper,
+    },
+  });
+
+const createRestoreStyles = (colors: any) =>
+  StyleSheet.create({
+    modalRoot: { flex: 1, justifyContent: 'flex-end' },
+    modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.overlay },
+    sheet: {
+      backgroundColor: colors.cream,
+      borderTopLeftRadius: 28,
+      borderTopRightRadius: 28,
+      padding: 24,
+      paddingBottom: 32,
+      borderWidth: 1,
+      borderColor: colors.borderSoft,
+      gap: 14,
+    },
+    sheetHandle: {
+      alignSelf: 'center',
+      width: 44,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: colors.chip,
+      marginTop: -8,
+    },
+    sheetHead: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    sheetTitle: {
+      fontFamily: fonts.displayLight,
+      fontSize: 22,
+      color: colors.ink,
+      flex: 1,
+      paddingRight: 12,
+    },
+    body: {
+      fontFamily: fonts.body,
+      fontSize: 13,
+      lineHeight: 20,
+      color: colors.stone600,
+    },
+    bodyEmphasis: {
+      fontFamily: fonts.bodySemibold,
+      color: colors.clay,
+    },
+    bodyMeta: {
+      fontFamily: fonts.body,
+      fontSize: 12,
+      lineHeight: 18,
+      color: colors.stone500,
+    },
+    actions: {
+      flexDirection: 'row',
+      gap: 10,
+      marginTop: 4,
+    },
+    cancelBtn: {
+      flex: 1,
+      paddingVertical: 13,
+      borderRadius: 999,
+      backgroundColor: colors.chip,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    cancelLabel: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: 13,
+      color: colors.inkSoft,
+    },
+    confirmBtn: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      paddingVertical: 13,
+      borderRadius: 999,
+      backgroundColor: colors.clay,
+    },
+    confirmLabel: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: 13,
+      color: colors.paper,
+    },
+  });

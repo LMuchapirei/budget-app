@@ -51,6 +51,7 @@ import { fonts } from './theme';
 import type { Transaction, ViewTab } from './types';
 
 import { Header } from './components/Header';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { BillsScreen } from './screens/BillsScreen';
 import { DashboardScreen } from './screens/DashboardScreen';
 import { ProjectionsScreen } from './screens/ProjectionsScreen';
@@ -156,22 +157,24 @@ function Layout() {
           onOpenSearch={() => setShowQuickActions(true)}
         />
         
-        <View key={view} style={{ flex: 1 }}>
-          {view === 'dashboard' && (
-            <DashboardScreen
-              onEditTransaction={(transaction) => {
-                if (transaction.transferPairId) {
-                  openTransferForm(transaction.transferPairId);
-                  return;
-                }
-                openTransactionForm(transaction);
-              }}
-            />
-          )}
-          {view === 'bills' && <BillsScreen />}
-          {view === 'projections' && <ProjectionsScreen />}
-          {view === 'reports' && <ReportsScreen />}
-          {view === 'settings' && <SettingsScreen />}
+        <View style={{ flex: 1 }}>
+          <ErrorBoundary key={view} tag={view}>
+            {view === 'dashboard' && (
+              <DashboardScreen
+                onEditTransaction={(transaction) => {
+                  if (transaction.transferPairId) {
+                    openTransferForm(transaction.transferPairId);
+                    return;
+                  }
+                  openTransactionForm(transaction);
+                }}
+              />
+            )}
+            {view === 'bills' && <BillsScreen />}
+            {view === 'projections' && <ProjectionsScreen />}
+            {view === 'reports' && <ReportsScreen />}
+            {view === 'settings' && <SettingsScreen />}
+          </ErrorBoundary>
         </View>
       </ScrollView>
 
@@ -415,7 +418,9 @@ export default function BudgetApp() {
       <ThemeProvider>
         <BudgetProvider>
           <LockProvider>
-            <Layout />
+            <ErrorBoundary tag="root">
+              <Layout />
+            </ErrorBoundary>
           </LockProvider>
         </BudgetProvider>
       </ThemeProvider>

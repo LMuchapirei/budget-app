@@ -30,6 +30,7 @@ import {
 } from '../utils/currency';
 import { cancelAllOccurrenceReminders } from '../services/scheduledNotifications';
 import { clearEvidenceFiles } from '../services/paymentEvidenceFiles';
+import type { BackupV1 } from '../services/backup';
 import {
   ALL_LEDGER_ID,
   DEFAULT_LEDGER,
@@ -337,6 +338,23 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     setFxError(null);
   };
 
+  const restoreBackup = async (payload: BackupV1) => {
+    const { data } = payload;
+    await cancelAllOccurrenceReminders();
+    await clearEvidenceFiles();
+    await storage.replaceUserDataWithBackup(data);
+    const restoredLedgers = data.ledgers.length > 0 ? data.ledgers : [DEFAULT_LEDGER];
+    setTransactions(data.transactions);
+    setTransactionEditHistory(data.transactionEditHistory);
+    setLedgers(restoredLedgers);
+    setActiveLedgerId(ALL_LEDGER_ID);
+    setCustomCategories(data.customCategories);
+    setBudgets(data.budgets);
+    setGoals(data.goals);
+    setScheduledOccurrenceRecords(data.scheduledOccurrenceRecords);
+    setPaymentEvidence(data.paymentEvidence);
+  };
+
   const {
     scopedTransactions,
     formatMoney,
@@ -500,6 +518,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     setCurrency,
     setReportingCurrency,
     clearAllData,
+    restoreBackup,
     formatMoney,
     formatReportingMoney,
     formatCompactMoney,

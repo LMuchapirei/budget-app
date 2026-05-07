@@ -21,6 +21,7 @@ import type {
   TransferDraft,
 } from '../../types';
 import type { ConversionResult } from '../../services/exchangeRates';
+import type { BackupV1 } from '../../services/backup';
 
 export interface DateFilter {
   startDate: string;
@@ -106,6 +107,7 @@ export interface BudgetContextValue {
   setCurrency: (c: string) => void;
   setReportingCurrency: (currency: ReportingCurrency) => Promise<void>;
   clearAllData: () => Promise<void>;
+  restoreBackup: (payload: BackupV1) => Promise<void>;
   formatMoney: (n: number) => string;
   formatReportingMoney: (n: number) => string;
   formatCompactMoney: (n: number) => string;

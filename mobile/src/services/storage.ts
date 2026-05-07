@@ -73,7 +73,20 @@ export interface DataService {
   getOnboardedAt(): Promise<string | null>;
   setOnboardedAt(value: string | null): Promise<void>;
 
+  replaceUserDataWithBackup(payload: BackupRestorePayload): Promise<void>;
+
   clearAllData(): Promise<void>;
+}
+
+export interface BackupRestorePayload {
+  transactions: Transaction[];
+  ledgers: LedgerAccount[];
+  customCategories: CustomCategory[];
+  budgets: Budget[];
+  goals: Goal[];
+  scheduledOccurrenceRecords: ScheduledOccurrenceRecord[];
+  paymentEvidence: PaymentEvidence[];
+  transactionEditHistory: TransactionEditHistory[];
 }
 
 class LocalDataService implements DataService {
@@ -310,6 +323,32 @@ class LocalDataService implements DataService {
       return;
     }
     await AsyncStorage.setItem(this.ONBOARDED_KEY, value);
+  }
+
+  async replaceUserDataWithBackup(payload: BackupRestorePayload): Promise<void> {
+    // Wipe user-data keys (preserves theme, lock, currency, onboarded) and write the new payload.
+    await AsyncStorage.multiRemove([
+      this.STORAGE_KEY,
+      this.LEDGER_KEY,
+      this.ACTIVE_LEDGER_KEY,
+      this.EDIT_HISTORY_KEY,
+      this.CAT_STORAGE_KEY,
+      this.BUDGETS_KEY,
+      this.GOALS_KEY,
+      this.BILL_OCCURRENCES_KEY,
+      this.SCHEDULED_OCCURRENCES_KEY,
+      this.PAYMENT_EVIDENCE_KEY,
+    ]);
+    await Promise.all([
+      this.saveTransactions(payload.transactions),
+      this.saveLedgers(payload.ledgers),
+      this.saveCategories(payload.customCategories),
+      this.saveBudgets(payload.budgets),
+      this.saveGoals(payload.goals),
+      this.saveScheduledOccurrenceRecords(payload.scheduledOccurrenceRecords),
+      this.savePaymentEvidence(payload.paymentEvidence),
+      this.saveTransactionEditHistory(payload.transactionEditHistory),
+    ]);
   }
 
   async clearAllData(): Promise<void> {
