@@ -16,6 +16,8 @@ import {
   Bell,
   Check,
   ChevronRight,
+  Database,
+  Download,
   ExternalLink,
   FileText,
   Info,
@@ -36,6 +38,7 @@ import { ACCENT_SWATCHES, type ThemeMode, type ThemePresetId } from '../context/
 import { useOnboarding } from '../context/OnboardingContext';
 import type { FontPairId } from '../theme';
 import { PRIVACY_POLICY_URL } from '../services/legal';
+import { exportBackupJson, exportTransactionsCsv } from '../services/dataExport';
 import { DataHandlingSheet } from '../components/forms/DataHandlingSheet';
 import { CategoryManagerSheet } from '../components/forms/CategoryManagerSheet';
 
@@ -70,6 +73,27 @@ export function SettingsScreen() {
   const [reminderNote, setReminderNote] = useState('');
   const [showDataHandling, setShowDataHandling] = useState(false);
   const [showCategoryManager, setShowCategoryManager] = useState(false);
+  const [exportBusy, setExportBusy] = useState<null | 'json' | 'csv'>(null);
+  const [exportNote, setExportNote] = useState('');
+
+  const handleExport = async (kind: 'json' | 'csv') => {
+    setExportBusy(kind);
+    setExportNote('');
+    try {
+      const result =
+        kind === 'json' ? await exportBackupJson() : await exportTransactionsCsv();
+      setExportNote(
+        result.shared
+          ? `Saved ${result.filename}.`
+          : `Saved to ${result.uri}. Sharing isn't available on this device.`,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      setExportNote(`Export failed: ${msg}`);
+    } finally {
+      setExportBusy(null);
+    }
+  };
 
   const openPrivacyPolicy = () => {
     Linking.openURL(PRIVACY_POLICY_URL).catch(() => undefined);
@@ -389,6 +413,58 @@ export function SettingsScreen() {
           </View>
           <ChevronRight size={16} color={colors.stone500} />
         </Pressable>
+      </View>
+
+      <Text style={styles.sectionHeader}>Data</Text>
+      <View style={styles.card}>
+        <Pressable
+          onPress={() => handleExport('json')}
+          disabled={exportBusy !== null}
+          style={[styles.aboutRow, exportBusy === 'json' && { opacity: 0.5 }]}
+          accessibilityRole="button"
+          accessibilityLabel="Export full backup as JSON"
+        >
+          <View style={styles.rowLeft}>
+            <Database size={20} color={colors.stone500} />
+            <View>
+              <Text style={styles.rowLabel}>Export full backup (JSON)</Text>
+              <Text style={styles.aboutMeta}>
+                Everything: transactions, ledgers, budgets, goals, schedules
+              </Text>
+            </View>
+          </View>
+          {exportBusy === 'json' ? (
+            <ActivityIndicator color={colors.rust} />
+          ) : (
+            <ChevronRight size={16} color={colors.stone500} />
+          )}
+        </Pressable>
+
+        <View style={styles.divider} />
+
+        <Pressable
+          onPress={() => handleExport('csv')}
+          disabled={exportBusy !== null}
+          style={[styles.aboutRow, exportBusy === 'csv' && { opacity: 0.5 }]}
+          accessibilityRole="button"
+          accessibilityLabel="Export transactions as CSV"
+        >
+          <View style={styles.rowLeft}>
+            <Download size={20} color={colors.stone500} />
+            <View>
+              <Text style={styles.rowLabel}>Export transactions (CSV)</Text>
+              <Text style={styles.aboutMeta}>
+                Open in Excel, Numbers, or Google Sheets
+              </Text>
+            </View>
+          </View>
+          {exportBusy === 'csv' ? (
+            <ActivityIndicator color={colors.rust} />
+          ) : (
+            <ChevronRight size={16} color={colors.stone500} />
+          )}
+        </Pressable>
+        {exportNote ? <Text style={styles.exportNote}>{exportNote}</Text> : null}
       </View>
 
       <Text style={styles.sectionHeader}>About</Text>
@@ -716,6 +792,15 @@ const createStyles = (colors: any) =>
       fontSize: 11,
       color: colors.stone500,
       marginTop: 2,
+    },
+    exportNote: {
+      fontFamily: fonts.body,
+      fontSize: 11,
+      color: colors.stone500,
+      paddingHorizontal: 16,
+      paddingBottom: 14,
+      paddingTop: 4,
+      lineHeight: 16,
     },
     dangerRow: {
       flexDirection: 'row',
