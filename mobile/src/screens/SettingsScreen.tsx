@@ -44,6 +44,7 @@ import { ACCENT_SWATCHES, type ThemeMode, type ThemePresetId } from '../context/
 import { useOnboarding } from '../context/OnboardingContext';
 import type { FontPairId } from '../theme';
 import { PRIVACY_POLICY_URL } from '../services/legal';
+import { exportBackupJson, exportTransactionsCsv } from '../services/dataExport';
 import { DataHandlingSheet } from '../components/forms/DataHandlingSheet';
 import { CategoryManagerSheet } from '../components/forms/CategoryManagerSheet';
 import {
@@ -52,8 +53,6 @@ import {
   setDiagnosticsEnabled,
 } from '../services/diagnostics';
 import {
-  exportBackupJsonFile,
-  exportTransactionsCsvFile,
   pickAndParseBackup,
 } from '../services/backup';
 import { fonts } from '../theme';
@@ -90,13 +89,6 @@ export function SettingsScreen() {
     requestScheduledNotificationPermission,
     syncScheduledNotifications,
     transactions,
-    ledgers,
-    customCategories,
-    budgets,
-    goals,
-    scheduledOccurrenceRecords,
-    paymentEvidence,
-    transactionEditHistory,
     restoreBackup,
   } = useBudget();
   const { isAppLockEnabled, setAppLockEnabled } = useLock();
@@ -143,8 +135,12 @@ export function SettingsScreen() {
     setDataBusy('csv');
     setDataNote('');
     try {
-      await exportTransactionsCsvFile(transactions, ledgers);
-      setDataNote(`Exported ${transactions.length} transaction${transactions.length === 1 ? '' : 's'}.`);
+      const result = await exportTransactionsCsv();
+      setDataNote(
+        result.shared
+          ? `Saved ${result.filename}.`
+          : `Saved to ${result.uri}. Sharing isn't available on this device.`,
+      );
     } catch (error) {
       setDataNote(error instanceof Error ? error.message : 'Could not export CSV.');
     } finally {
@@ -156,17 +152,12 @@ export function SettingsScreen() {
     setDataBusy('json');
     setDataNote('');
     try {
-      await exportBackupJsonFile({
-        transactions,
-        ledgers,
-        customCategories,
-        budgets,
-        goals,
-        scheduledOccurrenceRecords,
-        paymentEvidence,
-        transactionEditHistory,
-      });
-      setDataNote('Backup file ready to share.');
+      const result = await exportBackupJson();
+      setDataNote(
+        result.shared
+          ? `Saved ${result.filename}.`
+          : `Saved to ${result.uri}. Sharing isn't available on this device.`,
+      );
     } catch (error) {
       setDataNote(error instanceof Error ? error.message : 'Could not export backup.');
     } finally {

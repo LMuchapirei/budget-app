@@ -59,6 +59,11 @@ function hasBackupCollection(source: JsonObject) {
   return BACKUP_DATA_KEYS.some((key) => Array.isArray(source[key])) || Array.isArray(source.categories);
 }
 
+function isBudgetBackupApp(value: unknown) {
+  if (value === BACKUP_APP_ID) return true;
+  return isJsonObject(value) && value.name === BACKUP_APP_ID;
+}
+
 function assertBackupCollections(source: JsonObject) {
   for (const key of BACKUP_DATA_KEYS) {
     const value = source[key];
@@ -146,7 +151,7 @@ export function parseBackupJson(raw: string): BackupV1 {
   }
 
   const candidate = parsed as JsonObject;
-  if (candidate.app !== undefined && candidate.app !== BACKUP_APP_ID) {
+  if (candidate.app !== undefined && !isBudgetBackupApp(candidate.app)) {
     throw new Error("This file isn't a The Budget backup.");
   }
   if (candidate.schema !== undefined && candidate.schema !== BACKUP_SCHEMA_VERSION) {
