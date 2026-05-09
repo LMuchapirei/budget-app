@@ -11,6 +11,13 @@ import type {
   Transaction,
   TransactionEditHistory,
 } from '../types';
+import {
+  decryptBackup,
+  encryptBackup,
+  isEncryptedBackup,
+  type EncryptedBackupEnvelope,
+} from './backupCrypto';
+import { storage } from './storage';
 
 export const BACKUP_SCHEMA_VERSION = 1 as const;
 const BACKUP_APP_ID = 'the-budget' as const;
@@ -269,6 +276,36 @@ export async function exportTransactionsCsvFile(
 }
 
 export async function pickAndParseBackup(): Promise<BackupV1 | null> {
+  const raw = await pickBackupFileRaw();
+  if (raw === null) return null;
+  return parseBackupJson(raw);
+}
+
+/**
+ * Picks a backup file and returns either the parsed plain backup or — if the
+ * file is encrypted — the envelope, so the UI can prompt for a password.
+ * Returns null if the user cancelled the picker.
+ */
+export async function pickBackupFileForRestore(): Promise<
+  | { kind: 'plain'; backup: BackupV1 }
+  | { kind: 'encrypted'; envelope: EncryptedBackupEnvelope }
+  | null
+> {
+  const raw = await pickBackupFileRaw();
+  if (raw === null) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("This file isn't valid JSON.");
+  }
+  if (isEncryptedBackup(parsed)) {
+    return { kind: 'encrypted', envelope: parsed };
+  }
+  return { kind: 'plain', backup: parseBackupJson(raw) };
+}
+
+async function pickBackupFileRaw(): Promise<string | null> {
   let result: DocumentPicker.DocumentPickerResult;
   try {
     // '*/*' so backups round-tripped through Drive, Downloads, WhatsApp, etc.
@@ -287,14 +324,69 @@ export async function pickAndParseBackup(): Promise<BackupV1 | null> {
   if (!asset?.uri) {
     throw new Error('No file was selected.');
   }
-  let raw: string;
   try {
-    raw = await FileSystem.readAsStringAsync(asset.uri, {
+    return await FileSystem.readAsStringAsync(asset.uri, {
       encoding: FileSystem.EncodingType.UTF8,
     });
   } catch (error) {
     console.error('[backup] reading picked file failed', error);
-    throw new Error("Couldn't read that file. Pick a backup JSON saved by The Budget.");
+    throw new Error("Couldn't read that file. Pick a backup file saved by The Budget.");
   }
-  return parseBackupJson(raw);
+}
+
+export async function buildSnapshotFromStorage(): Promise<BackupSnapshot> {
+  const [
+    transactions,
+    ledgers,
+    customCategories,
+    budgets,
+    goals,
+    scheduledOccurrenceRecords,
+    paymentEvidence,
+    transactionEditHistory,
+  ] = await Promise.all([
+    storage.getTransactions(),
+    storage.getLedgers(),
+    storage.getCategories(),
+    storage.getBudgets(),
+    storage.getGoals(),
+    storage.getScheduledOccurrenceRecords(),
+    storage.getPaymentEvidence(),
+    storage.getTransactionEditHistory(),
+  ]);
+  return {
+    transactions,
+    ledgers,
+    customCategories,
+    budgets,
+    goals,
+    scheduledOccurrenceRecords,
+    paymentEvidence,
+    transactionEditHistory,
+  };
+}
+
+export async function exportEncryptedBackupFile(
+  password: string,
+): Promise<{ envelope: EncryptedBackupEnvelope }> {
+  const snapshot = await buildSnapshotFromStorage();
+  const plaintext = serializeBackupJson(snapshot);
+  const envelope = await encryptBackup(plaintext, password);
+  const filename = `budget-backup-${timestampSlug()}.tbk`;
+  await writeAndShare(
+    filename,
+    JSON.stringify(envelope),
+    'application/octet-stream',
+    'Save encrypted backup',
+  );
+  return { envelope };
+}
+
+/** Decrypts a previously-picked envelope and returns the parsed backup. */
+export async function decryptAndParseBackup(
+  envelope: EncryptedBackupEnvelope,
+  password: string,
+): Promise<BackupV1> {
+  const plaintext = await decryptBackup(envelope, password);
+  return parseBackupJson(plaintext);
 }

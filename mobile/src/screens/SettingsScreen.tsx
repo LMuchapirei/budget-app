@@ -44,17 +44,25 @@ import { ACCENT_SWATCHES, type ThemeMode, type ThemePresetId } from '../context/
 import { useOnboarding } from '../context/OnboardingContext';
 import type { FontPairId } from '../theme';
 import { PRIVACY_POLICY_URL } from '../services/legal';
-import { exportBackupJson, exportTransactionsCsv } from '../services/dataExport';
 import { DataHandlingSheet } from '../components/forms/DataHandlingSheet';
 import { CategoryManagerSheet } from '../components/forms/CategoryManagerSheet';
+import { EncryptedBackupSheet } from '../components/forms/EncryptedBackupSheet';
+import { RestoreBackupSheet } from '../components/forms/RestoreBackupSheet';
 import {
   isDiagnosticsEnabled,
   loadDiagnosticsPref,
   setDiagnosticsEnabled,
 } from '../services/diagnostics';
 import {
-  pickAndParseBackup,
+  exportTransactionsCsvFile,
+  pickBackupFileForRestore,
+  type BackupV1,
 } from '../services/backup';
+import {
+  forgetAllPasswords,
+  hasAnyRememberedPassword,
+} from '../services/passwordVault';
+import type { EncryptedBackupEnvelope } from '../services/backupCrypto';
 import { fonts } from '../theme';
 import { createSettingsStyles } from './settings/settingsStyles';
 
@@ -89,6 +97,7 @@ export function SettingsScreen() {
     requestScheduledNotificationPermission,
     syncScheduledNotifications,
     transactions,
+    ledgers,
     restoreBackup,
   } = useBudget();
   const { isAppLockEnabled, setAppLockEnabled } = useLock();
@@ -101,9 +110,15 @@ export function SettingsScreen() {
   const [showCategoryManager, setShowCategoryManager] = useState(false);
   const [diagnosticsOn, setDiagnosticsOn] = useState(isDiagnosticsEnabled);
   const [crashOnRender, setCrashOnRender] = useState(false);
-  const [dataBusy, setDataBusy] = useState<null | 'csv' | 'json' | 'restore'>(null);
+  const [dataBusy, setDataBusy] = useState<null | 'csv' | 'restore'>(null);
   const [dataNote, setDataNote] = useState('');
   const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
+  const [showEncryptedBackup, setShowEncryptedBackup] = useState(false);
+  const [encryptedRestoreEnvelope, setEncryptedRestoreEnvelope] =
+    useState<EncryptedBackupEnvelope | null>(null);
+  const [hasRememberedPasswords, setHasRememberedPasswords] = useState(false);
+  const [forgetBusy, setForgetBusy] = useState(false);
+  const [forgetNote, setForgetNote] = useState('');
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [clearBusy, setClearBusy] = useState(false);
   const [clearNote, setClearNote] = useState('');
@@ -116,6 +131,9 @@ export function SettingsScreen() {
     let cancelled = false;
     loadDiagnosticsPref().then((value) => {
       if (!cancelled) setDiagnosticsOn(value);
+    });
+    void hasAnyRememberedPassword().then((known) => {
+      if (!cancelled) setHasRememberedPasswords(known);
     });
     return () => {
       cancelled = true;
@@ -135,12 +153,8 @@ export function SettingsScreen() {
     setDataBusy('csv');
     setDataNote('');
     try {
-      const result = await exportTransactionsCsv();
-      setDataNote(
-        result.shared
-          ? `Saved ${result.filename}.`
-          : `Saved to ${result.uri}. Sharing isn't available on this device.`,
-      );
+      await exportTransactionsCsvFile(transactions, ledgers);
+      setDataNote('Transactions exported.');
     } catch (error) {
       setDataNote(error instanceof Error ? error.message : 'Could not export CSV.');
     } finally {
@@ -148,18 +162,19 @@ export function SettingsScreen() {
     }
   };
 
-  const handleExportBackup = async () => {
-    setDataBusy('json');
+  const handleEncryptedBackupSuccess = (note: string) => {
+    setDataNote(note);
+    void hasAnyRememberedPassword().then(setHasRememberedPasswords);
+  };
+
+  const restorePlainBackup = async (backup: BackupV1) => {
+    setDataBusy('restore');
     setDataNote('');
     try {
-      const result = await exportBackupJson();
-      setDataNote(
-        result.shared
-          ? `Saved ${result.filename}.`
-          : `Saved to ${result.uri}. Sharing isn't available on this device.`,
-      );
+      await restoreBackup(backup);
+      setDataNote('Backup restored. Re-enable schedule reminders if you use them.');
     } catch (error) {
-      setDataNote(error instanceof Error ? error.message : 'Could not export backup.');
+      setDataNote(error instanceof Error ? error.message : 'Could not restore backup.');
     } finally {
       setDataBusy(null);
     }
@@ -172,20 +187,38 @@ export function SettingsScreen() {
     void (async () => {
       try {
         await waitForNativePickerPresentation();
-        const payload = await pickAndParseBackup();
-        if (!payload) {
-          setDataNote('');
+        const result = await pickBackupFileForRestore();
+        if (!result) return;
+        if (result.kind === 'encrypted') {
+          setEncryptedRestoreEnvelope(result.envelope);
           return;
         }
-        setDataBusy('restore');
-        await restoreBackup(payload);
-        setDataNote('Backup restored. Re-enable schedule reminders if you use them.');
+        await restorePlainBackup(result.backup);
       } catch (error) {
         setDataNote(error instanceof Error ? error.message : 'Could not restore backup.');
-      } finally {
-        setDataBusy(null);
       }
     })();
+  };
+
+  const handleEncryptedRestoreDecrypted = (backup: BackupV1) => {
+    setEncryptedRestoreEnvelope(null);
+    void restorePlainBackup(backup);
+  };
+
+  const handleForgetPasswords = async () => {
+    setForgetBusy(true);
+    setForgetNote('');
+    try {
+      await forgetAllPasswords();
+      setHasRememberedPasswords(false);
+      setForgetNote('Remembered passwords cleared on this device.');
+    } catch (error) {
+      setForgetNote(
+        error instanceof Error ? error.message : 'Could not clear remembered passwords.',
+      );
+    } finally {
+      setForgetBusy(false);
+    }
   };
 
   const handleClearAllData = async () => {
@@ -299,6 +332,35 @@ export function SettingsScreen() {
             thumbColor={colors.cream}
           />
         </View>
+
+        {hasRememberedPasswords ? (
+          <>
+            <View style={styles.divider} />
+            <Pressable
+              onPress={handleForgetPasswords}
+              disabled={forgetBusy}
+              style={[styles.aboutRow, forgetBusy && { opacity: 0.5 }]}
+              accessibilityRole="button"
+              accessibilityLabel="Forget remembered backup passwords"
+            >
+              <View style={styles.rowLeft}>
+                <ShieldCheck size={20} color={colors.stone500} />
+                <View>
+                  <Text style={styles.rowLabel}>Forget remembered backup passwords</Text>
+                  <Text style={styles.aboutMeta}>
+                    Backups will require typing the password again on this device.
+                  </Text>
+                </View>
+              </View>
+              {forgetBusy ? (
+                <ActivityIndicator color={colors.rust} />
+              ) : (
+                <ChevronRight size={16} color={colors.stone500} />
+              )}
+            </Pressable>
+            {forgetNote ? <Text style={styles.reminderNote}>{forgetNote}</Text> : null}
+          </>
+        ) : null}
 
         <View style={styles.divider} />
 
@@ -552,25 +614,21 @@ export function SettingsScreen() {
         <View style={styles.divider} />
 
         <Pressable
-          onPress={handleExportBackup}
+          onPress={() => setShowEncryptedBackup(true)}
           disabled={dataBusy !== null}
           style={[styles.aboutRow, dataBusy !== null && { opacity: 0.5 }]}
           accessibilityRole="button"
         >
           <View style={styles.rowLeft}>
-            <Database size={20} color={colors.stone500} />
+            <ShieldCheck size={20} color={colors.stone500} />
             <View>
-              <Text style={styles.rowLabel}>Export full backup (JSON)</Text>
+              <Text style={styles.rowLabel}>Create encrypted backup</Text>
               <Text style={styles.aboutMeta}>
-                Everything you can restore later. Receipt photos are not included.
+                Password-protected. Receipt photos are not included.
               </Text>
             </View>
           </View>
-          {dataBusy === 'json' ? (
-            <ActivityIndicator color={colors.rust} />
-          ) : (
-            <ChevronRight size={16} color={colors.stone500} />
-          )}
+          <ChevronRight size={16} color={colors.stone500} />
         </Pressable>
 
         <View style={styles.divider} />
@@ -723,6 +781,19 @@ export function SettingsScreen() {
       <CategoryManagerSheet
         visible={showCategoryManager}
         onClose={() => setShowCategoryManager(false)}
+      />
+
+      <EncryptedBackupSheet
+        visible={showEncryptedBackup}
+        onClose={() => setShowEncryptedBackup(false)}
+        onSuccess={handleEncryptedBackupSuccess}
+      />
+
+      <RestoreBackupSheet
+        visible={encryptedRestoreEnvelope !== null}
+        envelope={encryptedRestoreEnvelope}
+        onClose={() => setEncryptedRestoreEnvelope(null)}
+        onDecrypted={handleEncryptedRestoreDecrypted}
       />
 
       <RestoreConfirmModal
