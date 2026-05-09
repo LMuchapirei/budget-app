@@ -34,7 +34,9 @@ import type { BackupV1 } from '../services/backup';
 import {
   ALL_LEDGER_ID,
   DEFAULT_LEDGER,
+  DEFAULT_LEDGER_ID,
   maskAccountNumberValue,
+  normalizeLedger,
   persistState,
 } from './budget/budgetUtils';
 import {
@@ -340,19 +342,47 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
 
   const restoreBackup = async (payload: BackupV1) => {
     const { data } = payload;
+    const restoredLedgers = data.ledgers.length > 0
+      ? data.ledgers.map(normalizeLedger)
+      : [DEFAULT_LEDGER];
+    const fallbackLedgerId =
+      restoredLedgers.find((ledger) => ledger.isDefault && !ledger.archived)?.id ??
+      restoredLedgers.find((ledger) => !ledger.archived)?.id ??
+      restoredLedgers[0]?.id ??
+      DEFAULT_LEDGER_ID;
+    const restoredTransactions = data.transactions.map((transaction) => ({
+      ...transaction,
+      ledgerId: transaction.ledgerId ?? fallbackLedgerId,
+    }));
+    const restoredGoals = data.goals.map((goal) => {
+      const currency = currencyOptionFromCode(goal.currencyCode);
+      return {
+        ...goal,
+        currencyCode: currency.code,
+        currencySymbol: goal.currencySymbol ?? currency.symbol,
+      };
+    });
+    const restoredData = {
+      ...data,
+      transactions: restoredTransactions,
+      ledgers: restoredLedgers,
+      goals: restoredGoals,
+    };
     await cancelAllOccurrenceReminders();
     await clearEvidenceFiles();
-    await storage.replaceUserDataWithBackup(data);
-    const restoredLedgers = data.ledgers.length > 0 ? data.ledgers : [DEFAULT_LEDGER];
-    setTransactions(data.transactions);
+    await storage.replaceUserDataWithBackup(restoredData);
+    setTransactions(restoredTransactions);
     setTransactionEditHistory(data.transactionEditHistory);
     setLedgers(restoredLedgers);
     setActiveLedgerId(ALL_LEDGER_ID);
     setCustomCategories(data.customCategories);
     setBudgets(data.budgets);
-    setGoals(data.goals);
+    setGoals(restoredGoals);
     setScheduledOccurrenceRecords(data.scheduledOccurrenceRecords);
     setPaymentEvidence(data.paymentEvidence);
+    setFxRates(null);
+    setFxStatus('idle');
+    setFxError(null);
   };
 
   const {

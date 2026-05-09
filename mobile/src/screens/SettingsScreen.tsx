@@ -5,6 +5,7 @@ import {
   Switch,
   Pressable,
   ActivityIndicator,
+  InteractionManager,
   Linking,
   Modal,
   StyleSheet,
@@ -57,6 +58,14 @@ import {
 } from '../services/backup';
 import { fonts } from '../theme';
 import { createSettingsStyles } from './settings/settingsStyles';
+
+function waitForNativePickerPresentation() {
+  return new Promise<void>((resolve) => {
+    InteractionManager.runAfterInteractions(() => {
+      setTimeout(resolve, 250);
+    });
+  });
+}
 
 export function SettingsScreen() {
   const {
@@ -165,23 +174,27 @@ export function SettingsScreen() {
     }
   };
 
-  const handleRestore = async () => {
+  const handleRestore = () => {
     setShowRestoreConfirm(false);
-    setDataBusy('restore');
     setDataNote('');
-    try {
-      const payload = await pickAndParseBackup();
-      if (!payload) {
-        setDataNote('');
-        return;
+
+    void (async () => {
+      try {
+        await waitForNativePickerPresentation();
+        const payload = await pickAndParseBackup();
+        if (!payload) {
+          setDataNote('');
+          return;
+        }
+        setDataBusy('restore');
+        await restoreBackup(payload);
+        setDataNote('Backup restored. Re-enable schedule reminders if you use them.');
+      } catch (error) {
+        setDataNote(error instanceof Error ? error.message : 'Could not restore backup.');
+      } finally {
+        setDataBusy(null);
       }
-      await restoreBackup(payload);
-      setDataNote('Backup restored. Re-enable schedule reminders if you use them.');
-    } catch (error) {
-      setDataNote(error instanceof Error ? error.message : 'Could not restore backup.');
-    } finally {
-      setDataBusy(null);
-    }
+    })();
   };
 
   const handleClearAllData = async () => {

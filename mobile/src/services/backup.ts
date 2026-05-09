@@ -44,6 +44,33 @@ const BACKUP_DATA_KEYS: ReadonlyArray<keyof BackupSnapshot> = [
   'transactionEditHistory',
 ];
 
+type JsonObject = Record<string, unknown>;
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function arrayField<T>(source: JsonObject, key: string): T[] {
+  const value = source[key];
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+function hasBackupCollection(source: JsonObject) {
+  return BACKUP_DATA_KEYS.some((key) => Array.isArray(source[key])) || Array.isArray(source.categories);
+}
+
+function assertBackupCollections(source: JsonObject) {
+  for (const key of BACKUP_DATA_KEYS) {
+    const value = source[key];
+    if (value !== undefined && !Array.isArray(value)) {
+      throw new Error(`Backup field "${key}" is not valid.`);
+    }
+  }
+  if (source.categories !== undefined && !Array.isArray(source.categories)) {
+    throw new Error('Backup field "categories" is not valid.');
+  }
+}
+
 function sanitizePaymentEvidence(evidence: PaymentEvidence[]): PaymentEvidence[] {
   // Photos live as local file:// URIs that will not resolve on a different device,
   // so we drop the photo records entirely. Other evidence types (sms, email, manual,
@@ -51,6 +78,24 @@ function sanitizePaymentEvidence(evidence: PaymentEvidence[]): PaymentEvidence[]
   return evidence
     .filter((entry) => entry.type !== 'photo')
     .map(({ attachmentUri: _uri, attachmentName: _name, ...rest }) => rest as PaymentEvidence);
+}
+
+function normalizeBackupSnapshot(source: JsonObject): BackupSnapshot {
+  const customCategories = arrayField<CustomCategory>(source, 'customCategories');
+  return {
+    transactions: arrayField<Transaction>(source, 'transactions'),
+    ledgers: arrayField<LedgerAccount>(source, 'ledgers'),
+    customCategories:
+      customCategories.length > 0 ? customCategories : arrayField<CustomCategory>(source, 'categories'),
+    budgets: arrayField<Budget>(source, 'budgets'),
+    goals: arrayField<Goal>(source, 'goals'),
+    scheduledOccurrenceRecords: arrayField<ScheduledOccurrenceRecord>(
+      source,
+      'scheduledOccurrenceRecords',
+    ),
+    paymentEvidence: sanitizePaymentEvidence(arrayField<PaymentEvidence>(source, 'paymentEvidence')),
+    transactionEditHistory: arrayField<TransactionEditHistory>(source, 'transactionEditHistory'),
+  };
 }
 
 export function serializeBackupJson(snapshot: BackupSnapshot): string {
@@ -66,6 +111,18 @@ export function serializeBackupJson(snapshot: BackupSnapshot): string {
   return JSON.stringify(payload, null, 2);
 }
 
+function looksLikeTransaction(value: unknown): value is Transaction {
+  if (!isJsonObject(value)) return false;
+  return (
+    typeof value.id === 'string' &&
+    (value.type === 'income' || value.type === 'expense') &&
+    typeof value.amount === 'number' &&
+    typeof value.description === 'string' &&
+    typeof value.category === 'string' &&
+    typeof value.date === 'string'
+  );
+}
+
 export function parseBackupJson(raw: string): BackupV1 {
   let parsed: unknown;
   try {
@@ -76,25 +133,40 @@ export function parseBackupJson(raw: string): BackupV1 {
   if (!parsed || typeof parsed !== 'object') {
     throw new Error('Backup file is empty or malformed.');
   }
-  const candidate = parsed as Partial<BackupV1>;
-  if (candidate.app !== BACKUP_APP_ID) {
+  if (Array.isArray(parsed)) {
+    if (parsed.every(looksLikeTransaction)) {
+      return {
+        schema: BACKUP_SCHEMA_VERSION,
+        app: BACKUP_APP_ID,
+        exportedAt: new Date().toISOString(),
+        data: normalizeBackupSnapshot({ transactions: parsed }),
+      };
+    }
     throw new Error("This file isn't a The Budget backup.");
   }
-  if (candidate.schema !== BACKUP_SCHEMA_VERSION) {
+
+  const candidate = parsed as JsonObject;
+  if (candidate.app !== undefined && candidate.app !== BACKUP_APP_ID) {
+    throw new Error("This file isn't a The Budget backup.");
+  }
+  if (candidate.schema !== undefined && candidate.schema !== BACKUP_SCHEMA_VERSION) {
     throw new Error(
       `Backup schema v${String(candidate.schema ?? '?')} isn't supported (expected v${BACKUP_SCHEMA_VERSION}).`,
     );
   }
-  const data = candidate.data as Partial<BackupSnapshot> | undefined;
-  if (!data || typeof data !== 'object') {
-    throw new Error('Backup file is missing data.');
+
+  const source = isJsonObject(candidate.data) ? candidate.data : candidate;
+  if (!hasBackupCollection(source)) {
+    throw new Error("This file isn't a The Budget backup.");
   }
-  for (const key of BACKUP_DATA_KEYS) {
-    if (!Array.isArray(data[key])) {
-      throw new Error(`Backup is missing "${key}".`);
-    }
-  }
-  return parsed as BackupV1;
+  assertBackupCollections(source);
+
+  return {
+    schema: BACKUP_SCHEMA_VERSION,
+    app: BACKUP_APP_ID,
+    exportedAt: typeof candidate.exportedAt === 'string' ? candidate.exportedAt : new Date().toISOString(),
+    data: normalizeBackupSnapshot(source),
+  };
 }
 
 const CSV_HEADER = [

@@ -14,7 +14,8 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.absoluttech.linmuch.budget"
+      "bundleIdentifier": "com.absoluttech.linmuch.budget",
+      "usesIcloudStorage": true
     },
     "android": {
       "package": "com.absoluttech.linmuch.budget",
@@ -34,6 +35,7 @@
     },
     "plugins": [
       "expo-font",
+      "expo-document-picker",
       [
         "expo-local-authentication",
         {

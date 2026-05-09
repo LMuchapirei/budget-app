@@ -149,28 +149,30 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
         })}
       </ScrollView>
 
-      <View style={styles.dotsRow}>
-        {SLIDES.map((_, i) => (
-          <View
-            key={i}
-            style={[
-              styles.dot,
-              i === page && {
-                backgroundColor: colors.rust,
-                width: 18,
-              },
-            ]}
-          />
-        ))}
-      </View>
+      <View style={styles.footer}>
+        <View style={styles.dotsRow}>
+          {SLIDES.map((_, i) => (
+            <View
+              key={i}
+              style={[
+                styles.dot,
+                i === page && {
+                  backgroundColor: colors.rust,
+                  width: 18,
+                },
+              ]}
+            />
+          ))}
+        </View>
 
-      <Pressable
-        onPress={isLast ? onComplete : () => goTo(page + 1)}
-        style={({ pressed }) => [styles.cta, pressed && { opacity: 0.92 }]}
-      >
-        <Text style={styles.ctaLabel}>{isLast ? 'Get started' : 'Next'}</Text>
-        <ArrowRight size={16} color={colors.paper} />
-      </Pressable>
+        <Pressable
+          onPress={isLast ? onComplete : () => goTo(page + 1)}
+          style={({ pressed }) => [styles.cta, pressed && { opacity: 0.92 }]}
+        >
+          <Text style={styles.ctaLabel}>{isLast ? 'Get started' : 'Next'}</Text>
+          <ArrowRight size={16} color={colors.paper} />
+        </Pressable>
+      </View>
 
       <DataHandlingSheet
         visible={showDataSheet}
@@ -186,7 +188,6 @@ const createStyles = (colors: any) =>
       flex: 1,
       backgroundColor: colors.paper,
       paddingTop: 48,
-      paddingBottom: 36,
     },
     topBar: {
       flexDirection: 'row',
@@ -205,7 +206,7 @@ const createStyles = (colors: any) =>
       letterSpacing: 0.4,
     },
     scroll: {
-      flexGrow: 0,
+      flex: 1,
     },
     slide: {
       paddingHorizontal: 32,
@@ -270,7 +271,7 @@ const createStyles = (colors: any) =>
       flexDirection: 'row',
       gap: 6,
       justifyContent: 'center',
-      marginVertical: 12,
+      marginBottom: 14,
     },
     dot: {
       width: 6,
@@ -278,12 +279,16 @@ const createStyles = (colors: any) =>
       borderRadius: 3,
       backgroundColor: colors.borderSoft,
     },
+    footer: {
+      paddingHorizontal: 24,
+      paddingTop: 8,
+      paddingBottom: 24,
+    },
     cta: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
       gap: 8,
-      marginHorizontal: 24,
       paddingVertical: 16,
       borderRadius: 999,
       backgroundColor: colors.ink,
