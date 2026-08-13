@@ -25,6 +25,7 @@ import {
   FileText,
   FileUp,
   Info,
+  ListOrdered,
   Moon,
   Palette,
   ShieldCheck,
@@ -48,6 +49,7 @@ import { DataHandlingSheet } from '../components/forms/DataHandlingSheet';
 import { CategoryManagerSheet } from '../components/forms/CategoryManagerSheet';
 import { EncryptedBackupSheet } from '../components/forms/EncryptedBackupSheet';
 import { RestoreBackupSheet } from '../components/forms/RestoreBackupSheet';
+import { TabOrderSheet } from '../components/forms/TabOrderSheet';
 import {
   isDiagnosticsEnabled,
   loadDiagnosticsPref,
@@ -108,6 +110,7 @@ export function SettingsScreen() {
   const [reminderNote, setReminderNote] = useState('');
   const [showDataHandling, setShowDataHandling] = useState(false);
   const [showCategoryManager, setShowCategoryManager] = useState(false);
+  const [showTabOrder, setShowTabOrder] = useState(false);
   const [diagnosticsOn, setDiagnosticsOn] = useState(isDiagnosticsEnabled);
   const [crashOnRender, setCrashOnRender] = useState(false);
   const [dataBusy, setDataBusy] = useState<null | 'csv' | 'restore'>(null);
@@ -582,6 +585,26 @@ export function SettingsScreen() {
           </View>
           <ChevronRight size={16} color={colors.stone500} />
         </Pressable>
+
+        <View style={styles.divider} />
+
+        <Pressable
+          onPress={() => setShowTabOrder(true)}
+          style={styles.aboutRow}
+          accessibilityRole="button"
+          accessibilityLabel="Reorder tabs and choose the tab the app opens to"
+        >
+          <View style={styles.rowLeft}>
+            <ListOrdered size={20} color={colors.stone500} />
+            <View>
+              <Text style={styles.rowLabel}>Tabs</Text>
+              <Text style={styles.aboutMeta}>
+                Reorder tabs and pick the tab the app opens to
+              </Text>
+            </View>
+          </View>
+          <ChevronRight size={16} color={colors.stone500} />
+        </Pressable>
       </View>
 
       <Text style={styles.sectionHeader}>Data</Text>
@@ -781,6 +804,11 @@ export function SettingsScreen() {
       <CategoryManagerSheet
         visible={showCategoryManager}
         onClose={() => setShowCategoryManager(false)}
+      />
+
+      <TabOrderSheet
+        visible={showTabOrder}
+        onClose={() => setShowTabOrder(false)}
       />
 
       <EncryptedBackupSheet

@@ -11,6 +11,7 @@ import type {
   BillOccurrenceRecord,
   ScheduledOccurrenceRecord,
   PaymentEvidence,
+  ViewTab,
 } from '../types';
 
 export interface ThemePreferencesPayload {
@@ -20,12 +21,22 @@ export interface ThemePreferencesPayload {
   fontPair?: string;
 }
 
+export interface LayoutPreferencesPayload {
+  /** Order of the reorderable tabs. 'settings' is always rendered last and is not stored here. */
+  order: ViewTab[];
+  /** Tab the app opens to on launch. Cannot be 'settings'. */
+  defaultTab: ViewTab;
+}
+
 export interface DataService {
   getTheme(): Promise<string | null>;
   setTheme(theme: string): Promise<void>;
 
   getThemePreferences(): Promise<ThemePreferencesPayload | null>;
   setThemePreferences(payload: ThemePreferencesPayload): Promise<void>;
+
+  getLayoutPreferences(): Promise<LayoutPreferencesPayload | null>;
+  setLayoutPreferences(payload: LayoutPreferencesPayload): Promise<void>;
 
   getCurrency(): Promise<string | null>;
   setCurrency(curr: string): Promise<void>;
@@ -92,6 +103,7 @@ export interface BackupRestorePayload {
 class LocalDataService implements DataService {
   private readonly THEME_KEY = 'budget:theme:v1';
   private readonly THEME_PREFS_KEY = 'budget:theme:v2';
+  private readonly LAYOUT_PREFS_KEY = 'budget:layout:v1';
   private readonly STORAGE_KEY = 'budget:transactions:v1';
   private readonly LEDGER_KEY = 'budget:ledgers:v1';
   private readonly ACTIVE_LEDGER_KEY = 'budget:active-ledger:v1';
@@ -124,6 +136,20 @@ class LocalDataService implements DataService {
     } catch {
       return null;
     }
+  }
+
+  async getLayoutPreferences(): Promise<LayoutPreferencesPayload | null> {
+    const raw = await AsyncStorage.getItem(this.LAYOUT_PREFS_KEY);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as LayoutPreferencesPayload;
+    } catch {
+      return null;
+    }
+  }
+
+  async setLayoutPreferences(payload: LayoutPreferencesPayload): Promise<void> {
+    await AsyncStorage.setItem(this.LAYOUT_PREFS_KEY, JSON.stringify(payload));
   }
 
   async setThemePreferences(payload: ThemePreferencesPayload): Promise<void> {

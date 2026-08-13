@@ -47,6 +47,7 @@ import { ArrowLeftRight, Plus, X } from 'lucide-react-native';
 
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { BudgetProvider, useBudget } from './context/BudgetContext';
+import { LayoutProvider, useLayout } from './context/LayoutContext';
 import { fonts } from './theme';
 import type { Transaction, ViewTab } from './types';
 
@@ -69,9 +70,20 @@ function Layout() {
   const { colors, theme } = useTheme();
   const { loading } = useBudget();
   const { isLocked } = useLock();
+  const { defaultTab, loaded: layoutLoaded } = useLayout();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
-  const [view, setView] = useState<ViewTab>('dashboard');
+  const [view, setView] = useState<ViewTab>(defaultTab);
+  const [viewInitialized, setViewInitialized] = useState(false);
+
+  // Once layout prefs hydrate, apply the saved default tab on first launch.
+  // After that, the user's in-session tab choice wins.
+  useEffect(() => {
+    if (layoutLoaded && !viewInitialized) {
+      setView(defaultTab);
+      setViewInitialized(true);
+    }
+  }, [layoutLoaded, defaultTab, viewInitialized]);
   const [showForm, setShowForm] = useState(false);
   const [showCreateMenu, setShowCreateMenu] = useState(false);
   const [showTransferForm, setShowTransferForm] = useState(false);
@@ -416,13 +428,15 @@ export default function BudgetApp() {
   return (
     <SafeAreaProvider>
       <ThemeProvider>
-        <BudgetProvider>
-          <LockProvider>
-            <ErrorBoundary tag="root">
-              <Layout />
-            </ErrorBoundary>
-          </LockProvider>
-        </BudgetProvider>
+        <LayoutProvider>
+          <BudgetProvider>
+            <LockProvider>
+              <ErrorBoundary tag="root">
+                <Layout />
+              </ErrorBoundary>
+            </LockProvider>
+          </BudgetProvider>
+        </LayoutProvider>
       </ThemeProvider>
     </SafeAreaProvider>
   );

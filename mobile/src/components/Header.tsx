@@ -6,6 +6,7 @@ import {
 } from 'lucide-react-native';
 import { useTheme } from '../context/ThemeContext';
 import { useBudget } from '../context/BudgetContext';
+import { useLayout } from '../context/LayoutContext';
 import { DateRangeSheet } from './forms/DateRangeSheet';
 import { ViewTab } from '../types';
 import { fonts } from '../theme';
@@ -26,19 +27,30 @@ function isoDate(d: Date) {
   return d.toISOString().split('T')[0];
 }
 
+const TAB_DEFINITIONS: Record<ViewTab, { label: string; Icon: LucideIcon }> = {
+  dashboard: { label: 'Ledger', Icon: Wallet },
+  bills: { label: 'Bills', Icon: Bell },
+  projections: { label: 'Projections', Icon: TrendingUp },
+  reports: { label: 'Reports', Icon: PieIcon },
+  settings: { label: 'Settings', Icon: Settings },
+};
+
 export function Header({ view, setView, onOpenSearch }: HeaderProps) {
   const { colors } = useTheme();
   const { dateFilter, setDateFilter } = useBudget();
+  const { renderedTabs } = useLayout();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [showDatePicker, setShowDatePicker] = useState(false);
 
-  const tabs: { id: ViewTab; label: string; Icon: LucideIcon }[] = [
-    { id: 'dashboard', label: 'Ledger', Icon: Wallet },
-    { id: 'bills', label: 'Bills', Icon: Bell },
-    { id: 'projections', label: 'Projections', Icon: TrendingUp },
-    { id: 'reports', label: 'Reports', Icon: PieIcon },
-    { id: 'settings', label: 'Settings', Icon: Settings },
-  ];
+  const tabs = useMemo(
+    () =>
+      renderedTabs.map((id) => ({
+        id,
+        label: TAB_DEFINITIONS[id].label,
+        Icon: TAB_DEFINITIONS[id].Icon,
+      })),
+    [renderedTabs],
+  );
 
   // Prev month: shift the whole range one month back
   const goToPrevMonth = () => {

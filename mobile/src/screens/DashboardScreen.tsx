@@ -368,12 +368,18 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
           <Pressable
             onPress={() => setBudgetSheet({ mode: 'add' })}
             style={styles.budgetEmpty}
+            accessibilityRole="button"
+            accessibilityLabel="Create your first budget"
           >
             <Target size={20} color={colors.rust} />
             <Text style={styles.budgetEmptyTitle}>Set your first budget</Text>
             <Text style={styles.budgetEmptyCopy}>
-              Cap monthly spending per category and watch your progress.
+              Tap this card to create one, cap monthly spending by category, and watch your progress.
             </Text>
+            <View style={styles.budgetAddRow}>
+              <Plus size={14} color={colors.rust} />
+              <Text style={styles.budgetAddLabel}>Tap to create budget</Text>
+            </View>
           </Pressable>
         ) : (
           <View style={{ gap: 10 }}>
@@ -406,12 +412,18 @@ export function DashboardScreen({ onEditTransaction }: DashboardScreenProps) {
           <Pressable
             onPress={() => setGoalSheet({ mode: 'add' })}
             style={styles.goalEmpty}
+            accessibilityRole="button"
+            accessibilityLabel="Create your first savings goal"
           >
             <Flag size={20} color={colors.rust} />
             <Text style={styles.budgetEmptyTitle}>Create a savings goal</Text>
             <Text style={styles.budgetEmptyCopy}>
-              Link a savings account and track progress automatically.
+              Tap this card to create one, link a savings account, and track progress automatically.
             </Text>
+            <View style={styles.budgetAddRow}>
+              <Plus size={14} color={colors.rust} />
+              <Text style={styles.budgetAddLabel}>Tap to create goal</Text>
+            </View>
           </Pressable>
         ) : (
           <View style={{ gap: 10 }}>
